@@ -1,5 +1,5 @@
 /**
- * BoxMaker Pro — Core TypeScript Interfaces & Models
+ * Web Based BoxMaker— Core TypeScript Interfaces & Models
  * Phase 1: Architecture Design
  * Author: Ferhat Göksel
  * Date: 2026-03-01

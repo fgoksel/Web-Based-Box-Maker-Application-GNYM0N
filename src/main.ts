@@ -1,5 +1,5 @@
 /**
- * BoxMaker Pro — Application Entry Point
+ * Web Based BoxMaker— Application Entry Point
  * Phase 1: Project Setup & Architecture Design
  * Author: Ferhat Göksel
  * Date: 2026-03-01
@@ -12,7 +12,7 @@ import type { BoxParams, BoxGeometry, SheetLayout } from './models/types';
 const APP_VERSION = '1.0.0';
 const APP_AUTHOR  = 'Ferhat Göksel';
 
-console.log(`BoxMaker Pro v${APP_VERSION} — ${APP_AUTHOR}`);
+console.log(`Web Based BoxMaker v${APP_VERSION} — ${APP_AUTHOR}`);
 console.log('Phase 1: Project Setup & Architecture Design complete.');
 console.log('Core TypeScript interfaces loaded successfully.');
 
