@@ -1,5 +1,6 @@
 import { buildBoxGeometry } from './geometry/GeometryEngine';
-import { applyJointToPanel, computeTabSpec } from './geometry/JointEngine';
+import { applyJointToPanel } from './geometry/JointEngine';
+import { BoxRenderer } from './rendering/BoxRenderer';
 import type { BoxParams } from './models/types';
 
 const testParams: BoxParams = {
@@ -41,15 +42,25 @@ const testParams: BoxParams = {
 };
 
 const geometry = buildBoxGeometry(testParams);
-
 geometry.panels.forEach(p => {
   applyJointToPanel(p, testParams.joint, testParams.material.kerf);
 });
 
-console.log('Web-Based Box Maker — Phase 3: Finger Joint Engine');
-console.log('Panels with joints applied:');
+const canvas = document.createElement('canvas');
+canvas.style.width  = '100vw';
+canvas.style.height = '100vh';
+canvas.style.display = 'block';
+document.body.style.margin = '0';
+document.body.appendChild(canvas);
 
-geometry.panels.forEach(p => {
-  const tabSpec = computeTabSpec(p.panelWidth, p.thickness, testParams.joint);
-  console.log(`  [${p.sequenceNumber}] ${p.name} — outline points: ${p.outline.length} — tabs per edge: ${tabSpec.count} — tab width: ${tabSpec.tabWidth.toFixed(2)}mm`);
+const boxRenderer = new BoxRenderer(canvas);
+boxRenderer.resize(window.innerWidth, window.innerHeight);
+boxRenderer.loadGeometry(geometry);
+boxRenderer.start();
+
+window.addEventListener('resize', () => {
+  boxRenderer.resize(window.innerWidth, window.innerHeight);
 });
+
+console.log('Web-Based Box Maker — Phase 4: 3D Rendering');
+console.log('Panels loaded into Three.js scene:', geometry.panels.length);
