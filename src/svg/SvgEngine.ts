@@ -1,4 +1,4 @@
-import type { Panel, PlacedPanel, SheetLayout, BoxParams } from '../models/types';
+import type { SheetLayout, BoxParams } from '../models/types';
 
 function f(n: number): string {
   return (Math.round(n * 1000) / 1000).toFixed(3).replace(/\.?0+$/, '');
@@ -67,8 +67,6 @@ export function generateSVG(
   const overflow = placed.filter(p => p.overflow);
 
   const pathResults = active.map((pl, idx) => {
-    const pw = pl.rotated ? pl.panel.panelHeight : pl.panel.panelWidth;
-    const ph = pl.rotated ? pl.panel.panelWidth  : pl.panel.panelHeight;
     let outline = pl.panel.outline;
     if (pl.rotated) {
       outline = outline.map(pt => ({
