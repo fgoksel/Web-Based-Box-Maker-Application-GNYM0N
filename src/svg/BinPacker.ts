@@ -24,7 +24,13 @@ interface FreeRect {
 
 function fitScore(pw: number, ph: number, fr: FreeRect): number {
   if (pw > fr.w || ph > fr.h) return Infinity;
-  return Math.min(fr.w - pw, fr.h - ph);
+  // Prefer tight fits that leave minimal wasted area, but still
+  // slightly bias toward a smaller leftover short-side for stability.
+  const rw = fr.w - pw;
+  const rh = fr.h - ph;
+  const wasteArea = rw * rh;
+  const shortSide = Math.min(rw, rh);
+  return wasteArea + shortSide * 0.001;
 }
 
 function guillotineSplit(fr: FreeRect, pw: number, ph: number, gap: number): FreeRect[] {
@@ -122,6 +128,28 @@ export function packPanels(panels: Panel[], config: SheetConfig): SheetLayout {
   };
 }
 
+export interface GroupedSheetLayout {
+  key: string;
+  label: string;
+  layout: SheetLayout;
+}
+
+export function packPanelsByThickness(panels: Panel[], config: SheetConfig): GroupedSheetLayout[] {
+  const groups = new Map<string, Panel[]>();
+  for (const p of panels) {
+    const key = String(Math.round(p.thickness * 1000) / 1000);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(p);
+  }
+
+  const keys = [...groups.keys()].sort((a, b) => Number(a) - Number(b));
+  return keys.map((k) => ({
+    key: k,
+    label: `${k} mm`,
+    layout: packPanels(groups.get(k)!, config),
+  }));
+}
+
 const PREVIEW_COLORS: string[] = [
   '#f0a500', '#00c8ff', '#39ff6e', '#ff6b9d',
   '#a78bfa', '#fbbf24', '#34d399', '#f87171',
@@ -133,9 +161,15 @@ export function renderSheetPreview(
   layout: SheetLayout,
   highlightSeq = -1,
 ): void {
-  const vp = canvas.parentElement!;
-  canvas.width  = vp.clientWidth;
-  canvas.height = vp.clientHeight;
+  const vp = canvas.parentElement;
+  if (vp) {
+    canvas.width = vp.clientWidth;
+    canvas.height = vp.clientHeight;
+  } else {
+    // Support offscreen / detached canvases used by grouped preview.
+    canvas.width = Math.max(1, canvas.width || 1);
+    canvas.height = Math.max(1, canvas.height || 1);
+  }
 
   const ctx = canvas.getContext('2d')!;
   const { config, placed, efficiency } = layout;
@@ -251,4 +285,42 @@ export function renderSheetPreview(
   ctx.textAlign    = 'left';
   ctx.textBaseline = 'top';
   ctx.fillText(`Sheet efficiency: ${eff.toFixed(1)}%`, ox, barY + 7);
+}
+
+export function renderGroupedSheetPreview(
+  canvas: HTMLCanvasElement,
+  grouped: GroupedSheetLayout[],
+  highlightSeq = -1,
+): void {
+  const vp = canvas.parentElement!;
+  canvas.width  = vp.clientWidth;
+  canvas.height = vp.clientHeight;
+
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#080b0f';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (!grouped.length) return;
+
+  const PAD = 24;
+  const gapY = 22;
+  const sectionH = Math.max(140, Math.floor((canvas.height - PAD * 2 - gapY * (grouped.length - 1)) / grouped.length));
+
+  grouped.forEach((g, idx) => {
+    // Create a temporary offscreen canvas to reuse existing renderer logic.
+    const off = document.createElement('canvas');
+    off.width = canvas.width;
+    off.height = sectionH;
+    renderSheetPreview(off, g.layout, highlightSeq);
+
+    const y = PAD + idx * (sectionH + gapY);
+    ctx.drawImage(off, 0, y);
+
+    // Section label
+    ctx.fillStyle = 'rgba(232,237,246,0.9)';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`THICKNESS: ${g.label}  |  Parts: ${g.layout.placed.filter(p => !p.overflow).length}/${g.layout.placed.length}`, 14, y + 10);
+  });
 }

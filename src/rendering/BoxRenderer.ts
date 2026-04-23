@@ -5,8 +5,8 @@ export class BoxRenderer {
   private renderer: THREE.WebGLRenderer;
   private scene:    THREE.Scene;
   private camera:   THREE.PerspectiveCamera;
-  private canvas:   HTMLCanvasElement;
   private meshes:   THREE.Group[] = [];
+  private panelByGroup = new Map<THREE.Group, Panel>();
 
   private orb = { theta: -0.6, phi: 0.7, radius: 320, panX: 0, panY: 0 };
   private drag = { active: false, rmb: false, lx: 0, ly: 0 };
@@ -15,13 +15,13 @@ export class BoxRenderer {
   private _explode   = false;
   private _animId    = 0;
   private _geometry: BoxGeometry | null = null;
+  private _paused = false;
 
   public fps         = 0;
   private _frames    = 0;
   private _fpsTime   = 0;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.canvas   = canvas;
     this.renderer = this.initRenderer(canvas);
     this.scene    = this.initScene();
     this.camera   = new THREE.PerspectiveCamera(42, 1, 0.5, 2000);
@@ -56,7 +56,7 @@ export class BoxRenderer {
     scene.add(rim);
 
     const grid = new THREE.GridHelper(600, 60, 0x1a2232, 0x131923);
-    grid.position.y = -80;
+    grid.position.y = 0;
     scene.add(grid);
 
     return scene;
@@ -142,15 +142,14 @@ export class BoxRenderer {
       -panel.thickness   / 2,
     );
 
-    const mat = this._wireframe
-      ? new THREE.MeshBasicMaterial({ color: panel.colorHex, wireframe: true })
-      : new THREE.MeshStandardMaterial({
-          color:       panel.colorHex,
-          roughness:   0.48,
-          metalness:   0.08,
-          transparent: panel.group === 'lid',
-          opacity:     panel.group === 'lid' ? 0.8 : 1,
-        });
+    const mat = new THREE.MeshStandardMaterial({
+      color:       panel.colorHex,
+      roughness:   0.48,
+      metalness:   0.08,
+      transparent: panel.group === 'lid',
+      opacity:     panel.group === 'lid' ? 0.8 : 1,
+      wireframe:   this._wireframe,
+    });
 
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow    = true;
@@ -200,17 +199,21 @@ export class BoxRenderer {
   private clearMeshes(): void {
     for (const group of this.meshes) {
       group.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        if (mesh.geometry) mesh.geometry.dispose();
-        if (mesh.material) {
-          const mat = mesh.material;
-          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-          else (mat as THREE.Material).dispose();
+        const anyObj = obj as unknown as { geometry?: THREE.BufferGeometry; material?: THREE.Material | THREE.Material[] };
+        if (anyObj.geometry) anyObj.geometry.dispose();
+        if (anyObj.material) {
+          const mats = Array.isArray(anyObj.material) ? anyObj.material : [anyObj.material];
+          for (const m of mats) {
+            const mm = m as THREE.Material & { map?: THREE.Texture | null };
+            if (mm.map) mm.map.dispose();
+            m.dispose();
+          }
         }
       });
       this.scene.remove(group);
     }
     this.meshes = [];
+    this.panelByGroup.clear();
   }
 
   public loadGeometry(geometry: BoxGeometry): void {
@@ -221,6 +224,7 @@ export class BoxRenderer {
       const group = this.buildPanelMesh(panel);
       this.scene.add(group);
       this.meshes.push(group);
+      this.panelByGroup.set(group, panel);
     }
 
     const { params } = geometry;
@@ -248,12 +252,28 @@ export class BoxRenderer {
 
   public set wireframe(val: boolean) {
     this._wireframe = val;
-    if (this._geometry) this.loadGeometry(this._geometry);
+    // Avoid rebuilding geometry; update materials in-place.
+    this.meshes.forEach((group) => {
+      group.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        if (typeof mat.wireframe === 'boolean') mat.wireframe = val;
+        mat.needsUpdate = true;
+      });
+    });
   }
 
   public set explode(val: boolean) {
     this._explode = val;
-    if (this._geometry) this.loadGeometry(this._geometry);
+    // Avoid rebuilding; update group transforms in-place.
+    const es = val ? 1.6 : 1.0;
+    this.meshes.forEach((group) => {
+      const panel = this.panelByGroup.get(group);
+      if (!panel) return;
+      const pos = panel.position3D;
+      group.position.set(pos.x * es, pos.y * es, pos.z * es);
+    });
   }
 
   public get wireframe() { return this._wireframe; }
@@ -273,9 +293,18 @@ export class BoxRenderer {
     });
   }
 
+  public set paused(val: boolean) {
+    this._paused = val;
+  }
+
+  public get paused(): boolean {
+    return this._paused;
+  }
+
   public start(): void {
     const loop = (ts: number) => {
       this._animId = requestAnimationFrame(loop);
+      if (this._paused || document.hidden) return;
       this._frames++;
       if (ts - this._fpsTime > 1000) {
         this.fps     = this._frames;

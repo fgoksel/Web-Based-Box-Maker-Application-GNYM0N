@@ -9,8 +9,15 @@ import {
   importProject,
   downloadJSON,
 } from './utils/ProjectIO';
-import { packPanels, renderSheetPreview, SHEET_SIZES } from './svg/BinPacker';
-import { downloadSVG, generateSVG } from './svg/SvgEngine';
+import {
+  packPanels,
+  packPanelsByThickness,
+  renderGroupedSheetPreview,
+  renderSheetPreview,
+  SHEET_SIZES,
+  type GroupedSheetLayout,
+} from './svg/BinPacker';
+import { downloadSVG, generateGroupedSVG, generateSVG } from './svg/SvgEngine';
 
 type ViewMode = '3d' | 'flat';
 
@@ -36,6 +43,15 @@ function setValidMessage(msg: string, kind: 'error' | 'ok' | 'info' = 'info'): v
   box.setAttribute('data-kind', kind);
 }
 
+function toast(message: string, kind: 'ok' | 'err' | 'info' = 'info', timeoutMs = 2200): void {
+  const host = el<HTMLDivElement>('toast');
+  const item = document.createElement('div');
+  item.className = `toast-item ${kind}`;
+  item.textContent = message;
+  host.appendChild(item);
+  setTimeout(() => item.remove(), timeoutMs);
+}
+
 function setActionEnabled(id: string, enabled: boolean): void {
   el<HTMLButtonElement>(id).disabled = !enabled;
 }
@@ -58,6 +74,7 @@ let currentParams: BoxParams | null = null;
 let currentGeometry: BoxGeometry | null = null;
 let currentSheet: SheetConfig | null = null;
 let currentLayout: SheetLayout | null = null;
+let currentGroupedLayouts: GroupedSheetLayout[] | null = null;
 
 let highlightSeq: number | null = null;
 let viewMode: ViewMode = '3d';
@@ -192,7 +209,7 @@ function validateUI(showMessage = true): UIValidationResult {
 
   setActionEnabled('btnGenerate', result.valid);
   setActionEnabled('btnPack', result.valid && !!currentGeometry);
-  setActionEnabled('btnSVG', result.valid && !!currentLayout);
+  setActionEnabled('btnSVG', result.valid && (!!currentLayout || !!currentGroupedLayouts));
   setActionEnabled('btnExport', result.valid);
 
   return result;
@@ -226,11 +243,13 @@ function setView(mode: ViewMode): void {
     cFlat.style.display = 'none';
     v3dBtn.classList.add('active');
     vFlatBtn.classList.remove('active');
+    if (boxRenderer) boxRenderer.paused = false;
   } else {
     c3d.style.display = 'none';
     cFlat.style.display = 'block';
     v3dBtn.classList.remove('active');
     vFlatBtn.classList.add('active');
+    if (boxRenderer) boxRenderer.paused = true;
 
     if (currentLayout) {
       renderSheetPreview(cFlat, currentLayout, highlightSeq ?? -1);
@@ -258,15 +277,48 @@ function renderPartsList(panels: Panel[]): void {
   for (const p of panels) {
     const row = document.createElement('div');
     row.className = 'part-row';
-    row.textContent = `${p.sequenceNumber}. ${p.name} (${p.panelWidth.toFixed(1)}×${p.panelHeight.toFixed(1)})`;
     row.tabIndex = 0;
-    row.addEventListener('click', () => {
+    row.dataset.seq = String(p.sequenceNumber);
+
+    const badge = document.createElement('div');
+    badge.className = 'part-badge';
+    badge.textContent = String(p.sequenceNumber);
+
+    const main = document.createElement('div');
+    main.className = 'part-main';
+
+    const name = document.createElement('div');
+    name.className = 'part-name';
+    name.textContent = p.name;
+
+    const meta = document.createElement('div');
+    meta.className = 'part-meta';
+    meta.innerHTML = `
+      <span class="tag"><span class="dot ${p.group}"></span>${p.group.toUpperCase()}</span>
+      <span class="tag">${p.panelWidth.toFixed(1)}×${p.panelHeight.toFixed(1)} mm</span>
+      <span class="tag">t=${p.thickness.toFixed(2)} mm</span>
+    `;
+
+    main.appendChild(name);
+    main.appendChild(meta);
+    row.appendChild(badge);
+    row.appendChild(main);
+
+    const onPick = () => {
       highlightSeq = p.sequenceNumber;
       boxRenderer?.highlightPanel(p.sequenceNumber);
       if (currentLayout && viewMode === 'flat') {
         renderSheetPreview(el<HTMLCanvasElement>('cFlat'), currentLayout, highlightSeq);
       }
+    };
+    row.addEventListener('click', onPick);
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onPick();
+      }
     });
+
     wrap.appendChild(row);
   }
 }
@@ -298,8 +350,13 @@ function regenerate3D(): void {
 
   currentSheet = readSheetFromUI();
   currentLayout = null;
+  currentGroupedLayouts = null;
   setActionEnabled('btnPack', true);
   setActionEnabled('btnSVG', false);
+}
+
+function separateByThicknessEnabled(): boolean {
+  return el<HTMLElement>('togSepMat').classList.contains('on');
 }
 
 function runPacking(): void {
@@ -316,10 +373,24 @@ function runPacking(): void {
   const sheet = readSheetFromUI();
   currentSheet = sheet;
 
+  const cFlat = el<HTMLCanvasElement>('cFlat');
+  if (separateByThicknessEnabled()) {
+    const grouped = packPanelsByThickness(currentGeometry.panels, sheet);
+    currentGroupedLayouts = grouped;
+    currentLayout = null;
+    renderGroupedSheetPreview(cFlat, grouped, highlightSeq ?? -1);
+    showStatus('Packed (grouped by thickness) — SVG export is ready', `Sheets: ${grouped.length}`);
+    // Use worst overflow state as message
+    const anyOverflow = grouped.some(g => g.layout.placed.some(p => p.overflow));
+    setValidMessage(anyOverflow ? 'Some panels overflow: increase sheet size or gap' : 'All panels fit on the sheet', anyOverflow ? 'info' : 'ok');
+    setActionEnabled('btnSVG', true);
+    return;
+  }
+
   const layout = packPanels(currentGeometry.panels, sheet);
   currentLayout = layout;
+  currentGroupedLayouts = null;
 
-  const cFlat = el<HTMLCanvasElement>('cFlat');
   renderSheetPreview(cFlat, layout, highlightSeq ?? -1);
 
   updateSummary(currentGeometry, layout);
@@ -333,14 +404,20 @@ function runPacking(): void {
 }
 
 function doExportSVG(): void {
-  if (!currentLayout || !currentParams) {
+  if ((!currentLayout && !currentGroupedLayouts) || !currentParams) {
     setValidMessage('Run bin packing first', 'error');
     return;
   }
 
-  const svg = generateSVG(currentLayout, currentParams);
+  const svg = currentGroupedLayouts
+    ? generateGroupedSVG(currentGroupedLayouts, currentParams)
+    : generateSVG(currentLayout!, currentParams);
   downloadSVG(svg);
-  showStatus('SVG downloaded', `Parts: ${currentLayout.placed.length}`);
+  const parts = currentGroupedLayouts
+    ? currentGroupedLayouts.reduce((s, g) => s + g.layout.placed.length, 0)
+    : currentLayout!.placed.length;
+  showStatus('SVG downloaded', `Parts: ${parts}`);
+  toast('SVG exported', 'ok');
 }
 
 function doExportProjectJSON(): void {
@@ -358,6 +435,7 @@ function doExportProjectJSON(): void {
   const json = exportProject(currentParams, sheet);
   downloadJSON(json);
   showStatus('Project JSON downloaded');
+  toast('Project JSON exported', 'ok');
 }
 
 function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): void {
@@ -410,6 +488,8 @@ function initUI(): void {
   const divToggle = el<HTMLElement>('togDiv');
   const lidRow = el<HTMLElement>('togLidRow');
   const divRow = el<HTMLElement>('togDivRow');
+  const sepToggle = el<HTMLElement>('togSepMat');
+  const sepRow = el<HTMLElement>('togSepMatRow');
 
   lidRow.addEventListener('click', () => {
     const enabled = !lidToggle.classList.contains('on');
@@ -422,6 +502,12 @@ function initUI(): void {
     toggleOn(divToggle, enabled);
     el<HTMLElement>('divSub').style.display = enabled ? 'block' : 'none';
     validateUI(false);
+  });
+
+  sepRow.addEventListener('click', () => {
+    const enabled = !sepToggle.classList.contains('on');
+    toggleOn(sepToggle, enabled);
+    toast(enabled ? 'Packing: grouped by thickness' : 'Packing: single sheet', 'info');
   });
 
   el<HTMLButtonElement>('v3dBtn').addEventListener('click', () => setView('3d'));
@@ -499,8 +585,10 @@ function initUI(): void {
     try {
       await navigator.clipboard.writeText(el<HTMLTextAreaElement>('jsonArea').value);
       showStatus('Copied to clipboard');
+      toast('Copied JSON to clipboard', 'ok');
     } catch {
       setValidMessage('Clipboard copy failed', 'error');
+      toast('Clipboard copy failed', 'err');
     }
   });
 }
