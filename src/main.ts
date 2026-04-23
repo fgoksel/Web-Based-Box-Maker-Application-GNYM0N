@@ -21,6 +21,7 @@ import { downloadSVG, generateGroupedSVG, generateSVG } from './svg/SvgEngine';
 
 type ViewMode = '3d' | 'flat';
 
+/** Safe typed lookup for required DOM elements. */
 function el<T extends HTMLElement>(id: string): T {
   const out = document.getElementById(id);
   if (!out) throw new Error(`Missing element #${id}`);
@@ -75,11 +76,30 @@ let currentGeometry: BoxGeometry | null = null;
 let currentSheet: SheetConfig | null = null;
 let currentLayout: SheetLayout | null = null;
 let currentGroupedLayouts: GroupedSheetLayout[] | null = null;
+let currentThicknessView = '__all__';
 
 let highlightSeq: number | null = null;
 let viewMode: ViewMode = '3d';
 
 let boxRenderer: BoxRenderer | null = null;
+
+/**
+ * Unified user feedback helper used by workflow actions.
+ * - status bar is always updated
+ * - validation area is updated when `validKind` is provided
+ * - optional toast for short-lived confirmation
+ */
+function notifyUser(opts: {
+  status: string;
+  dims?: string;
+  validKind?: 'error' | 'ok' | 'info';
+  toastKind?: 'ok' | 'err' | 'info';
+  toastMessage?: string;
+}): void {
+  showStatus(opts.status, opts.dims);
+  if (opts.validKind) setValidMessage(opts.status, opts.validKind);
+  if (opts.toastKind && opts.toastMessage) toast(opts.toastMessage, opts.toastKind);
+}
 
 function readBoxParamsFromUI(): BoxParams {
   const params = defaultBoxParams();
@@ -251,9 +271,68 @@ function setView(mode: ViewMode): void {
     vFlatBtn.classList.add('active');
     if (boxRenderer) boxRenderer.paused = true;
 
-    if (currentLayout) {
-      renderSheetPreview(cFlat, currentLayout, highlightSeq ?? -1);
+    renderCurrentFlatPreview();
+  }
+}
+
+function getVisibleGroupedLayouts(): GroupedSheetLayout[] {
+  if (!currentGroupedLayouts) return [];
+  if (currentThicknessView === '__all__') return currentGroupedLayouts;
+  return currentGroupedLayouts.filter(g => g.key === currentThicknessView);
+}
+
+function renderCurrentFlatPreview(): void {
+  if (viewMode !== 'flat') return;
+  const flat = el<HTMLCanvasElement>('cFlat');
+  if (currentGroupedLayouts) {
+    renderGroupedSheetPreview(flat, getVisibleGroupedLayouts(), highlightSeq ?? -1);
+  } else if (currentLayout) {
+    renderSheetPreview(flat, currentLayout, highlightSeq ?? -1);
+  }
+}
+
+function refreshThicknessSelector(): void {
+  const wrap = el<HTMLElement>('thicknessSelWrap');
+  const sel = el<HTMLSelectElement>('thicknessSel');
+  const stats = el<HTMLElement>('thicknessStats');
+
+  if (!currentGroupedLayouts || currentGroupedLayouts.length <= 1) {
+    wrap.style.display = 'none';
+    sel.innerHTML = '';
+    stats.textContent = '';
+    currentThicknessView = '__all__';
+    return;
+  }
+
+  wrap.style.display = 'block';
+  const totalParts = currentGroupedLayouts.reduce(
+    (sum, g) => sum + g.layout.placed.filter(p => !p.overflow).length,
+    0,
+  );
+  const avgEff = currentGroupedLayouts.reduce((sum, g) => sum + g.layout.efficiency, 0) / currentGroupedLayouts.length;
+
+  const opts = [
+    `<option value="__all__">All thicknesses</option>`,
+    ...currentGroupedLayouts.map((g) => {
+      const count = g.layout.placed.filter(p => !p.overflow).length;
+      const eff = (g.layout.efficiency * 100).toFixed(1);
+      return `<option value="${g.key}">${g.label} — ${count} parts | ${eff}%</option>`;
+    }),
+  ];
+  sel.innerHTML = opts.join('');
+  sel.value = currentThicknessView;
+  if (currentThicknessView === '__all__') {
+    stats.textContent = `All groups: ${currentGroupedLayouts.length} | ${totalParts} parts | Avg efficiency ${(
+      avgEff * 100
+    ).toFixed(1)}%`;
+  } else {
+    const g = currentGroupedLayouts.find(x => x.key === currentThicknessView);
+    if (!g) {
+      stats.textContent = '';
+      return;
     }
+    const count = g.layout.placed.filter(p => !p.overflow).length;
+    stats.textContent = `${g.label}: ${count} parts | ${(g.layout.efficiency * 100).toFixed(1)}%`;
   }
 }
 
@@ -307,9 +386,7 @@ function renderPartsList(panels: Panel[]): void {
     const onPick = () => {
       highlightSeq = p.sequenceNumber;
       boxRenderer?.highlightPanel(p.sequenceNumber);
-      if (currentLayout && viewMode === 'flat') {
-        renderSheetPreview(el<HTMLCanvasElement>('cFlat'), currentLayout, highlightSeq);
-      }
+      renderCurrentFlatPreview();
     };
     row.addEventListener('click', onPick);
     row.addEventListener('keydown', (e) => {
@@ -323,6 +400,7 @@ function renderPartsList(panels: Panel[]): void {
   }
 }
 
+/** Updates bottom status line text. */
 function showStatus(text: string, dims?: string): void {
   setText('stText', text);
   if (dims) setText('stDims', dims);
@@ -351,6 +429,8 @@ function regenerate3D(): void {
   currentSheet = readSheetFromUI();
   currentLayout = null;
   currentGroupedLayouts = null;
+  currentThicknessView = '__all__';
+  refreshThicknessSelector();
   setActionEnabled('btnPack', true);
   setActionEnabled('btnSVG', false);
 }
@@ -373,13 +453,14 @@ function runPacking(): void {
   const sheet = readSheetFromUI();
   currentSheet = sheet;
 
-  const cFlat = el<HTMLCanvasElement>('cFlat');
   if (separateByThicknessEnabled()) {
     const grouped = packPanelsByThickness(currentGeometry.panels, sheet);
     currentGroupedLayouts = grouped;
     currentLayout = null;
-    renderGroupedSheetPreview(cFlat, grouped, highlightSeq ?? -1);
-    showStatus('Packed (grouped by thickness) — SVG export is ready', `Sheets: ${grouped.length}`);
+    currentThicknessView = '__all__';
+    refreshThicknessSelector();
+    renderCurrentFlatPreview();
+    notifyUser({ status: 'Packed (grouped by thickness) — SVG export is ready', dims: `Groups: ${grouped.length}` });
     // Use worst overflow state as message
     const anyOverflow = grouped.some(g => g.layout.placed.some(p => p.overflow));
     setValidMessage(anyOverflow ? 'Some panels overflow: increase sheet size or gap' : 'All panels fit on the sheet', anyOverflow ? 'info' : 'ok');
@@ -390,11 +471,13 @@ function runPacking(): void {
   const layout = packPanels(currentGeometry.panels, sheet);
   currentLayout = layout;
   currentGroupedLayouts = null;
+  currentThicknessView = '__all__';
+  refreshThicknessSelector();
 
-  renderSheetPreview(cFlat, layout, highlightSeq ?? -1);
+  renderCurrentFlatPreview();
 
   updateSummary(currentGeometry, layout);
-  showStatus('Packed — SVG export is ready', `Sheets: ${layout.sheetsRequired}`);
+  notifyUser({ status: 'Packed — SVG export is ready', dims: `Sheets: ${layout.sheetsRequired}` });
   if (layout.placed.some(p => p.overflow)) {
     setValidMessage('Some panels overflow: increase sheet size or gap', 'info');
   } else {
@@ -416,8 +499,12 @@ function doExportSVG(): void {
   const parts = currentGroupedLayouts
     ? currentGroupedLayouts.reduce((s, g) => s + g.layout.placed.length, 0)
     : currentLayout!.placed.length;
-  showStatus('SVG downloaded', `Parts: ${parts}`);
-  toast('SVG exported', 'ok');
+  notifyUser({
+    status: 'SVG downloaded',
+    dims: `Parts: ${parts}`,
+    toastKind: 'ok',
+    toastMessage: 'SVG exported',
+  });
 }
 
 function doExportProjectJSON(): void {
@@ -434,8 +521,11 @@ function doExportProjectJSON(): void {
   currentSheet = sheet;
   const json = exportProject(currentParams, sheet);
   downloadJSON(json);
-  showStatus('Project JSON downloaded');
-  toast('Project JSON exported', 'ok');
+  notifyUser({
+    status: 'Project JSON downloaded',
+    toastKind: 'ok',
+    toastMessage: 'Project JSON exported',
+  });
 }
 
 function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): void {
@@ -468,6 +558,9 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
 
   el<HTMLElement>('lidSub').style.display = p.lid.enabled ? 'block' : 'none';
   el<HTMLElement>('divSub').style.display = p.divider.enabled ? 'block' : 'none';
+
+  currentThicknessView = '__all__';
+  refreshThicknessSelector();
 }
 
 function openJsonModal(initialValue: string, title: string): void {
@@ -490,6 +583,7 @@ function initUI(): void {
   const divRow = el<HTMLElement>('togDivRow');
   const sepToggle = el<HTMLElement>('togSepMat');
   const sepRow = el<HTMLElement>('togSepMatRow');
+  const thicknessSel = el<HTMLSelectElement>('thicknessSel');
 
   lidRow.addEventListener('click', () => {
     const enabled = !lidToggle.classList.contains('on');
@@ -508,6 +602,15 @@ function initUI(): void {
     const enabled = !sepToggle.classList.contains('on');
     toggleOn(sepToggle, enabled);
     toast(enabled ? 'Packing: grouped by thickness' : 'Packing: single sheet', 'info');
+    if (!enabled) {
+      currentThicknessView = '__all__';
+      refreshThicknessSelector();
+    }
+  });
+
+  thicknessSel.addEventListener('change', () => {
+    currentThicknessView = thicknessSel.value;
+    renderCurrentFlatPreview();
   });
 
   el<HTMLButtonElement>('v3dBtn').addEventListener('click', () => setView('3d'));
@@ -606,8 +709,8 @@ function handleResize(): void {
     boxRenderer.resize(Math.floor(rect.width), Math.floor(rect.height));
   }
 
-  if (viewMode === 'flat' && currentLayout) {
-    renderSheetPreview(el<HTMLCanvasElement>('cFlat'), currentLayout, highlightSeq ?? -1);
+  if (viewMode === 'flat') {
+    renderCurrentFlatPreview();
   }
 }
 
