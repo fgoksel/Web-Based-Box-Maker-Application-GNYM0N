@@ -98,7 +98,7 @@ Status: DONE
 - Add documentation comments
 
 ### 12. Documentation & Thesis Finalization
-Status: NOT STARTED
+Status: DONE
 - Architecture diagrams
 - Algorithm explanations
 - Final screenshots
@@ -111,4 +111,4 @@ Status: NOT STARTED
 - Implemented modules: `GeometryEngine`, `JointEngine`, `BoxRenderer`, `SvgEngine`, `BinPacker`, `ProjectIO`, UI controller in `main.ts`.
 - Current UI supports: Generate, 3D view, sheet preview, grouped packing by thickness, SVG export, JSON import/export.
 - Testing coverage in `src/__tests__/` includes geometry, joints, layout and SVG edge cases.
-- Phase 12 remains: final documentation assets, diagrams, thesis-facing write-up, and repository polish.
+- Phase 12 deliverables added: architecture/algorithm documentation and usage notes.

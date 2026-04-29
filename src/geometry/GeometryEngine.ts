@@ -74,19 +74,25 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
 
   const halfW = W / 2;
   const halfD = D / 2;
+  // In 3D, we align everything to a "grounded" coordinate system:
+  // - external bottom plane: y = 0 (sits on the grid)
+  // - bottom panel (thickness tB) sits inside, centered at y = tB/2
+  // - internal cavity spans height iH and is centered at y = tB + iH/2
+  const bottomY = tB / 2;
+  const cavityCenterY = tB + iH / 2;
 
   panels.push(makePanel(
     'Bottom',
     W, D, tB, 'tray',
-    { x: 0, y: -(iH / 2 + tB / 2), z: 0 },
-    { x: 0, y: 0, z: 0 },
+    { x: 0, y: bottomY, z: 0 },
+    { x: -Math.PI / 2, y: 0, z: 0 },
     0,
   ));
 
   panels.push(makePanel(
     'Front Wall',
     iW, iH, tF, 'tray',
-    { x: 0, y: 0, z: halfD - tF / 2 },
+    { x: 0, y: cavityCenterY, z: halfD - tF / 2 },
     { x: 0, y: 0, z: 0 },
     1,
   ));
@@ -94,7 +100,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
   panels.push(makePanel(
     'Back Wall',
     iW, iH, tF, 'tray',
-    { x: 0, y: 0, z: -(halfD - tF / 2) },
+    { x: 0, y: cavityCenterY, z: -(halfD - tF / 2) },
     { x: 0, y: 0, z: 0 },
     2,
   ));
@@ -102,7 +108,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
   panels.push(makePanel(
     'Left Wall',
     D, iH, tF, 'tray',
-    { x: -(halfW - tF / 2), y: 0, z: 0 },
+    { x: -(halfW - tF / 2), y: cavityCenterY, z: 0 },
     { x: 0, y: Math.PI / 2, z: 0 },
     3,
   ));
@@ -110,7 +116,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
   panels.push(makePanel(
     'Right Wall',
     D, iH, tF, 'tray',
-    { x: halfW - tF / 2, y: 0, z: 0 },
+    { x: halfW - tF / 2, y: cavityCenterY, z: 0 },
     { x: 0, y: Math.PI / 2, z: 0 },
     4,
   ));
@@ -119,10 +125,11 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
     const { height: lH, tolerance: lTol } = params.lid;
     const lW = W + lTol * 2;
     const lD = D + lTol * 2;
-    const lidBaseY = iH / 2 + lH / 2 + 2;
+    // Tray top is at y = H. Place lid above with a small clearance.
+    const lidBaseY = H + lH / 2 + 2;
 
     panels.push(makePanel('Lid Bottom', lW, lD, tB, 'lid',
-      { x: 0, y: lidBaseY - lH / 2 + tB / 2, z: 0 }, { x: 0, y: 0, z: 0 }, 0));
+      { x: 0, y: lidBaseY - lH / 2 + tB / 2, z: 0 }, { x: -Math.PI / 2, y: 0, z: 0 }, 0));
 
     panels.push(makePanel('Lid Front Wall', lW - 2 * tF, lH - tB, tF, 'lid',
       { x: 0, y: lidBaseY, z: lD / 2 - tF / 2 }, { x: 0, y: 0, z: 0 }, 1));
@@ -140,7 +147,10 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
   if (params.divider.enabled) {
     const { columns: cols, rows, heightOverride } = params.divider;
     const dH = heightOverride > 0 ? heightOverride : iH;
-    const yOffset = (iH - dH) / 2;
+    // Dividers should sit on the tray bottom (internal floor), not float.
+    // Internal floor plane: y = tB
+    // Divider center y: floor + dH/2
+    const dividerCenterY = tB + dH / 2;
 
     if (cols > 1) {
       const colSlotW = (iW - tD * (cols - 1)) / cols;
@@ -149,7 +159,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
         panels.push(makePanel(
           `Col Divider ${c}`,
           iD, dH, tD, 'divider',
-          { x: xPos, y: yOffset, z: 0 },
+          { x: xPos, y: dividerCenterY, z: 0 },
           { x: 0, y: Math.PI / 2, z: 0 },
           c - 1,
         ));
@@ -163,7 +173,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
         panels.push(makePanel(
           `Row Divider ${r}`,
           iW, dH, tD, 'divider',
-          { x: 0, y: yOffset, z: zPos },
+          { x: 0, y: dividerCenterY, z: zPos },
           { x: 0, y: 0, z: 0 },
           (rows - 1) + r - 1,
         ));

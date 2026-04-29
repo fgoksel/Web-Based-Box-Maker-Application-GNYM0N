@@ -1,4 +1,5 @@
 import type { SheetLayout, BoxParams } from '../models/types';
+import type { GroupedSheetLayout } from './BinPacker';
 
 function f(n: number): string {
   return (Math.round(n * 1000) / 1000).toFixed(3).replace(/\.?0+$/, '');
@@ -117,6 +118,40 @@ ${overflowComment}${paths}  <g id="labels">
     <text x="${f(sw + 9)}" y="${f(sh / 2)}" text-anchor="middle" fill="#888888" transform="rotate(90,${f(sw + 9)},${f(sh / 2)})">${sh} mm</text>
   </g>
 </svg>`;
+}
+
+export function generateGroupedSVG(
+  grouped: GroupedSheetLayout[],
+  params: BoxParams,
+): string {
+  if (!grouped.length) {
+    return generateSVG({ config: { size: 'custom', width: 10, height: 10, gap: 0 }, placed: [], efficiency: 0, sheetsRequired: 1 }, params);
+  }
+
+  const sw = grouped[0].layout.config.width;
+  const sh = grouped[0].layout.config.height;
+  const margin = 18;
+  const sectionGap = 24;
+  const totalH = grouped.length * sh + (grouped.length - 1) * sectionGap + margin * 2;
+  const totalW = sw + margin * 2;
+
+  let body = '';
+  grouped.forEach((g, idx) => {
+    const yOff = margin + idx * (sh + sectionGap);
+    const svg = generateSVG(g.layout, params);
+
+    // Extract inner content between the first <rect .../> and closing </svg>
+    const inner = svg.split('\n').slice(3, -1).join('\n');
+    body += `  <g transform="translate(${margin},${yOff})">\n`;
+    body += `    <text x="0" y="-6" font-size="4" font-family="monospace" fill="#555555">Thickness: ${g.label}</text>\n`;
+    body += inner.replace(/^/gm, '    ') + '\n';
+    body += '  </g>\n';
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!-- Web-Based Box Maker | Grouped by thickness | Sheets:${grouped.length} | ${new Date().toISOString()} -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalW} ${totalH}" width="${totalW}mm" height="${totalH}mm">
+${body}</svg>`;
 }
 
 export function downloadSVG(svgContent: string, filename = 'web-box-maker-laser.svg'): void {
