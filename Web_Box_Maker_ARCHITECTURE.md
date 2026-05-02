@@ -56,11 +56,11 @@ flowchart TD
   A[index.html UI inputs] --> B[src/main.ts Controller]
   B -->|build| C[GeometryEngine: buildBoxGeometry]
   C --> D[JointEngine: applyJointToPanel]
-  D --> E[BoxRenderer: loadGeometry (3D preview)]
-  D --> F[BinPacker: packPanels or packPanelsByThickness]
-  F --> G[Sheet preview: renderSheetPreview / renderGroupedSheetPreview]
-  F --> H[SVG export: SvgEngine generateSVG / generateGroupedSVG]
-  B --> I[ProjectIO export/import JSON]
+  D --> E["BoxRenderer: loadGeometry (3D preview)"]
+  D --> F["BinPacker: packPanels or packPanelsByThickness"]
+  F --> G["Sheet preview: renderSheetPreview / renderGroupedSheetPreview"]
+  F --> H["SvgEngine: generateSVG / generateGroupedSVG"]
+  B --> I[ProjectIO: export/import JSON]
 ```
 
 ## Important design notes
