@@ -4,7 +4,10 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Web-Based Box Maker thesis project for generating parametrized 3D box previews and laser-ready SVG layouts." />
+    <meta name="author" content="Ferhat Göksel" />
     <title>Web-Based Box Maker — Ferhat Göksel</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='12' y='10' width='40' height='44' rx='5' fill='%23070a0f' stroke='%234cc9ff' stroke-width='4'/%3E%3Cpath d='M12 26h40M22 10v44M42 10v44' stroke='%2339ff6e' stroke-width='3' opacity='.9'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="/src/ui/style.css" />
 </head>
 
@@ -36,15 +39,15 @@
                         <div class="grid3">
                             <div class="field">
                                 <label>Width</label>
-                                <input type="number" id="bW" value="120" min="10" step="1" />
+                                <input type="number" id="bW" value="120" min="10" step="1" autocomplete="off" />
                             </div>
                             <div class="field">
                                 <label>Depth</label>
-                                <input type="number" id="bD" value="90" min="10" step="1" />
+                                <input type="number" id="bD" value="90" min="10" step="1" autocomplete="off" />
                             </div>
                             <div class="field">
                                 <label>Height</label>
-                                <input type="number" id="bH" value="55" min="5" step="1" />
+                                <input type="number" id="bH" value="55" min="5" step="1" autocomplete="off" />
                             </div>
                         </div>
                     </div>
@@ -54,20 +57,20 @@
                         <div class="grid3">
                             <div class="field">
                                 <label>Frame</label>
-                                <input type="number" id="tF" value="3" min="0.5" max="20" step="0.1" />
+                                <input type="number" id="tF" value="3" min="0.5" max="20" step="0.1" autocomplete="off" />
                             </div>
                             <div class="field">
                                 <label>Base</label>
-                                <input type="number" id="tB" value="3" min="0.5" max="20" step="0.1" />
+                                <input type="number" id="tB" value="3" min="0.5" max="20" step="0.1" autocomplete="off" />
                             </div>
                             <div class="field">
                                 <label>Divider</label>
-                                <input type="number" id="tD" value="3" min="0.5" max="20" step="0.1" />
+                                <input type="number" id="tD" value="3" min="0.5" max="20" step="0.1" autocomplete="off" />
                             </div>
                         </div>
                         <div class="field">
                             <label>Kerf (mm)</label>
-                            <input type="number" id="kerf" value="0.10" min="0" max="2" step="0.01" />
+                            <input type="number" id="kerf" value="0.10" min="0" max="2" step="0.01" autocomplete="off" />
                         </div>
                     </div>
 
@@ -84,7 +87,7 @@
                             </div>
                             <div class="field">
                                 <label>Min Tab Count</label>
-                                <input type="number" id="tabN" value="3" min="1" max="20" step="1" />
+                                <input type="number" id="tabN" value="3" min="1" max="20" step="1" autocomplete="off" />
                             </div>
                         </div>
                     </div>
@@ -99,11 +102,11 @@
                             <div class="grid2">
                                 <div class="field">
                                     <label>Lid Height (mm)</label>
-                                    <input type="number" id="lidH" value="12" min="3" step="1" />
+                                    <input type="number" id="lidH" value="12" min="3" step="1" autocomplete="off" />
                                 </div>
                                 <div class="field">
                                     <label>Tolerance (mm)</label>
-                                    <input type="number" id="lidTol" value="0.2" min="0" step="0.05" />
+                                    <input type="number" id="lidTol" value="0.2" min="0" step="0.05" autocomplete="off" />
                                 </div>
                             </div>
                         </div>
@@ -119,16 +122,16 @@
                             <div class="grid2">
                                 <div class="field">
                                     <label>Columns</label>
-                                    <input type="number" id="dCols" value="2" min="1" max="20" step="1" />
+                                    <input type="number" id="dCols" value="2" min="1" max="20" step="1" autocomplete="off" />
                                 </div>
                                 <div class="field">
                                     <label>Rows</label>
-                                    <input type="number" id="dRows" value="2" min="1" max="20" step="1" />
+                                    <input type="number" id="dRows" value="2" min="1" max="20" step="1" autocomplete="off" />
                                 </div>
                             </div>
                             <div class="field">
                                 <label>Divider Height (0 = full)</label>
-                                <input type="number" id="dH" value="0" min="0" step="1" />
+                                <input type="number" id="dH" value="0" min="0" step="1" autocomplete="off" />
                             </div>
                         </div>
                     </div>
@@ -144,13 +147,17 @@
                         <button class="view-btn active" id="v3dBtn">3D View</button>
                         <button class="view-btn" id="vFlatBtn">Sheet Layout</button>
                     </div>
-                    <button class="toolbar-btn" id="btnReset">Reset Camera</button>
-                    <button class="toolbar-btn" id="btnWire">Wireframe</button>
-                    <button class="toolbar-btn" id="btnExplode">Explode</button>
+                    <button class="toolbar-btn" id="btnReset" title="Reset orbit camera to default position">Reset Camera</button>
+                    <button class="toolbar-btn" id="btnWire" title="Toggle wireframe rendering for all panels">Wireframe</button>
+                    <button class="toolbar-btn" id="btnExplode" title="Spread panels apart for easier inspection">Explode</button>
                 </div>
                 <div class="viewport-main">
                     <canvas id="c3d"></canvas>
                     <canvas id="cFlat" style="display:none"></canvas>
+                    <div id="viewportEmptyState" aria-live="polite">
+                        <div class="empty-state-icon">⬢</div>
+                        <div class="empty-state-text">Click Generate to build your box</div>
+                    </div>
                 </div>
                 <div class="statusbar">
                     <div class="status-dot" id="stDot"></div>
@@ -178,7 +185,7 @@
                             </div>
                             <div class="field">
                                 <label>Gap (mm)</label>
-                                <input type="number" id="shGap" value="2" min="1" max="20" step="0.5" />
+                                <input type="number" id="shGap" value="2" min="1" max="20" step="0.5" autocomplete="off" />
                             </div>
                         </div>
                         <div class="toggle-row" id="togSepMatRow" style="margin-top:10px">

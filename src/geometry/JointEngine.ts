@@ -16,7 +16,11 @@ export function computeTabSpec(
   if (config.tabWidthOverride > 0) {
     const tw = config.tabWidthOverride;
     const rawCount = Math.round(edgeLength / (tw * 2));
-    const count = Math.max(1, rawCount % 2 === 0 ? rawCount - 1 : rawCount);
+    let count = Math.max(1, rawCount % 2 === 0 ? rawCount - 1 : rawCount);
+    // Even with an override, don't allow fingers so small they become fragile.
+    while (count > 1 && edgeLength / (count * 2) < minTabWidth) {
+      count -= 2;
+    }
     const tabWidth = edgeLength / (count * 2);
     return { count, tabWidth, gapWidth: tabWidth };
   }
@@ -126,6 +130,25 @@ export function applyJointToPanel(
     case 'finger':
     case 'box':
       panel.outline = buildFingerJointOutline(pw, ph, t, k, config);
+      {
+        // Normalize outline to (0,0) so width/height reflect the real cut size.
+        // Finger/box joints can extend beyond the original rectangle by thickness.
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const pt of panel.outline) {
+          if (pt.x < minX) minX = pt.x;
+          if (pt.y < minY) minY = pt.y;
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+
+        if (Number.isFinite(minX) && Number.isFinite(minY) && Number.isFinite(maxX) && Number.isFinite(maxY)) {
+          const dx = -minX;
+          const dy = -minY;
+          panel.outline = panel.outline.map((pt) => ({ x: pt.x + dx, y: pt.y + dy }));
+          panel.panelWidth = maxX - minX;
+          panel.panelHeight = maxY - minY;
+        }
+      }
       break;
     case 'none':
     default:

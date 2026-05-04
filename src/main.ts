@@ -83,6 +83,16 @@ let viewMode: ViewMode = '3d';
 
 let boxRenderer: BoxRenderer | null = null;
 
+type StatusTone = 'ready' | 'processing' | 'error';
+
+function setStatusTone(tone: StatusTone): void {
+  el<HTMLElement>('stDot').setAttribute('data-state', tone);
+}
+
+function setEmptyStateVisible(visible: boolean): void {
+  el<HTMLElement>('viewportEmptyState').style.display = visible ? 'flex' : 'none';
+}
+
 /**
  * Unified user feedback helper used by workflow actions.
  * - status bar is always updated
@@ -95,10 +105,12 @@ function notifyUser(opts: {
   validKind?: 'error' | 'ok' | 'info';
   toastKind?: 'ok' | 'err' | 'info';
   toastMessage?: string;
+  tone?: StatusTone;
 }): void {
   showStatus(opts.status, opts.dims);
   if (opts.validKind) setValidMessage(opts.status, opts.validKind);
   if (opts.toastKind && opts.toastMessage) toast(opts.toastMessage, opts.toastKind);
+  if (opts.tone) setStatusTone(opts.tone);
 }
 
 function readBoxParamsFromUI(): BoxParams {
@@ -356,6 +368,7 @@ function renderPartsList(panels: Panel[]): void {
   for (const p of panels) {
     const row = document.createElement('div');
     row.className = 'part-row';
+    if (highlightSeq === p.sequenceNumber) row.classList.add('selected');
     row.tabIndex = 0;
     row.dataset.seq = String(p.sequenceNumber);
 
@@ -386,6 +399,7 @@ function renderPartsList(panels: Panel[]): void {
     const onPick = () => {
       highlightSeq = p.sequenceNumber;
       boxRenderer?.highlightPanel(p.sequenceNumber);
+      renderPartsList(panels);
       renderCurrentFlatPreview();
     };
     row.addEventListener('click', onPick);
@@ -407,8 +421,10 @@ function showStatus(text: string, dims?: string): void {
 }
 
 function regenerate3D(): void {
+  setStatusTone('processing');
   const validation = validateUI(true);
   if (!validation.valid || !validation.params) {
+    setStatusTone('error');
     throw new Error('Please fix validation errors before generating');
   }
   const params = validation.params;
@@ -420,6 +436,7 @@ function regenerate3D(): void {
 
   if (!boxRenderer) throw new Error('BoxRenderer not initialized');
   boxRenderer.loadGeometry(geometry);
+  setEmptyStateVisible(false);
 
   updateSummary(geometry, null);
   renderPartsList(geometry.panels);
@@ -432,7 +449,9 @@ function regenerate3D(): void {
   currentThicknessView = '__all__';
   refreshThicknessSelector();
   setActionEnabled('btnPack', true);
+  // Enable SVG export only after packing has produced a layout.
   setActionEnabled('btnSVG', false);
+  setStatusTone('ready');
 }
 
 function separateByThicknessEnabled(): boolean {
@@ -440,13 +459,16 @@ function separateByThicknessEnabled(): boolean {
 }
 
 function runPacking(): void {
+  setStatusTone('processing');
   const validation = validateUI(true);
   if (!validation.valid) {
+    setStatusTone('error');
     return;
   }
 
   if (!currentGeometry || !currentParams) {
     setValidMessage('Generate geometry first', 'error');
+    setStatusTone('error');
     return;
   }
 
@@ -465,6 +487,7 @@ function runPacking(): void {
     const anyOverflow = grouped.some(g => g.layout.placed.some(p => p.overflow));
     setValidMessage(anyOverflow ? 'Some panels overflow: increase sheet size or gap' : 'All panels fit on the sheet', anyOverflow ? 'info' : 'ok');
     setActionEnabled('btnSVG', true);
+    setStatusTone(anyOverflow ? 'processing' : 'ready');
     return;
   }
 
@@ -480,8 +503,10 @@ function runPacking(): void {
   notifyUser({ status: 'Packed — SVG export is ready', dims: `Sheets: ${layout.sheetsRequired}` });
   if (layout.placed.some(p => p.overflow)) {
     setValidMessage('Some panels overflow: increase sheet size or gap', 'info');
+    setStatusTone('processing');
   } else {
     setValidMessage('All panels fit on the sheet', 'ok');
+    setStatusTone('ready');
   }
   setActionEnabled('btnSVG', true);
 }
@@ -489,6 +514,7 @@ function runPacking(): void {
 function doExportSVG(): void {
   if ((!currentLayout && !currentGroupedLayouts) || !currentParams) {
     setValidMessage('Run bin packing first', 'error');
+    setStatusTone('error');
     return;
   }
 
@@ -504,17 +530,20 @@ function doExportSVG(): void {
     dims: `Parts: ${parts}`,
     toastKind: 'ok',
     toastMessage: 'SVG exported',
+    tone: 'ready',
   });
 }
 
 function doExportProjectJSON(): void {
   const validation = validateUI(true);
   if (!validation.valid) {
+    setStatusTone('error');
     return;
   }
 
   if (!currentParams) {
     setValidMessage('Generate geometry first', 'error');
+    setStatusTone('error');
     return;
   }
   const sheet = currentSheet ?? readSheetFromUI();
@@ -525,6 +554,7 @@ function doExportProjectJSON(): void {
     status: 'Project JSON downloaded',
     toastKind: 'ok',
     toastMessage: 'Project JSON exported',
+    tone: 'ready',
   });
 }
 
@@ -556,8 +586,8 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
   el<HTMLSelectElement>('shSz').value = sheet.size;
   el<HTMLInputElement>('shGap').value = String(sheet.gap);
 
-  el<HTMLElement>('lidSub').style.display = p.lid.enabled ? 'block' : 'none';
-  el<HTMLElement>('divSub').style.display = p.divider.enabled ? 'block' : 'none';
+  el<HTMLElement>('lidSub').classList.toggle('open', p.lid.enabled);
+  el<HTMLElement>('divSub').classList.toggle('open', p.divider.enabled);
 
   currentThicknessView = '__all__';
   refreshThicknessSelector();
@@ -574,8 +604,8 @@ function closeJsonModal(): void {
 }
 
 function initUI(): void {
-  el<HTMLElement>('lidSub').style.display = 'none';
-  el<HTMLElement>('divSub').style.display = 'none';
+  el<HTMLElement>('lidSub').classList.remove('open');
+  el<HTMLElement>('divSub').classList.remove('open');
 
   const lidToggle = el<HTMLElement>('togLid');
   const divToggle = el<HTMLElement>('togDiv');
@@ -588,13 +618,13 @@ function initUI(): void {
   lidRow.addEventListener('click', () => {
     const enabled = !lidToggle.classList.contains('on');
     toggleOn(lidToggle, enabled);
-    el<HTMLElement>('lidSub').style.display = enabled ? 'block' : 'none';
+    el<HTMLElement>('lidSub').classList.toggle('open', enabled);
     validateUI(false);
   });
   divRow.addEventListener('click', () => {
     const enabled = !divToggle.classList.contains('on');
     toggleOn(divToggle, enabled);
-    el<HTMLElement>('divSub').style.display = enabled ? 'block' : 'none';
+    el<HTMLElement>('divSub').classList.toggle('open', enabled);
     validateUI(false);
   });
 
@@ -632,8 +662,11 @@ function initUI(): void {
     try {
       currentParams = readBoxParamsFromUI();
       regenerate3D();
+      runPacking();
     } catch (e) {
       setValidMessage((e as Error).message, 'error');
+      setStatusTone('error');
+      setEmptyStateVisible(true);
     }
   });
 
@@ -680,6 +713,7 @@ function initUI(): void {
     highlightSeq = null;
 
     regenerate3D();
+    runPacking();
     validateUI(true);
     closeJsonModal();
   });
@@ -692,6 +726,20 @@ function initUI(): void {
     } catch {
       setValidMessage('Clipboard copy failed', 'error');
       toast('Clipboard copy failed', 'err');
+      setStatusTone('error');
+    }
+  });
+
+  // Close modal when clicking outside the modal box.
+  el<HTMLElement>('jsonModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeJsonModal();
+  });
+
+  // Keyboard shortcut: Ctrl+Enter triggers Generate.
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault();
+      el<HTMLButtonElement>('btnGenerate').click();
     }
   });
 }
@@ -722,5 +770,8 @@ window.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('resize', handleResize);
 
   showStatus('Ready — click Generate');
+  setStatusTone('ready');
+  setEmptyStateVisible(true);
+  setActionEnabled('btnSVG', false);
   validateUI(false);
 });
