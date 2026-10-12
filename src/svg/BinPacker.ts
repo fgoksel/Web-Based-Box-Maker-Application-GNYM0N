@@ -219,9 +219,19 @@ export function renderSheetPreview(
     const col = PREVIEW_COLORS[idx % PREVIEW_COLORS.length];
     const isHL = pl.panel.sequenceNumber === highlightSeq;
 
+    // Trace the real cut outline (with its fingers), rotated like the SVG export.
+    ctx.beginPath();
+    pl.panel.outline.forEach((pt, i) => {
+      const lx = pl.rotated ? pl.panel.panelHeight - pt.y : pt.x;
+      const ly = pl.rotated ? pt.x : pt.y;
+      if (i === 0) ctx.moveTo(px + lx * sc, py + ly * sc);
+      else ctx.lineTo(px + lx * sc, py + ly * sc);
+    });
+    ctx.closePath();
+
     ctx.globalAlpha = 0.13;
     ctx.fillStyle   = col;
-    ctx.fillRect(px, py, pW, pH);
+    ctx.fill();
     ctx.globalAlpha = 1;
 
     ctx.strokeStyle = col;
@@ -230,7 +240,7 @@ export function renderSheetPreview(
       ctx.shadowColor = col;
       ctx.shadowBlur  = 8;
     }
-    ctx.strokeRect(px, py, pW, pH);
+    ctx.stroke();
     ctx.shadowBlur = 0;
 
     const fs = Math.max(9, Math.min(20, pW * 0.22));

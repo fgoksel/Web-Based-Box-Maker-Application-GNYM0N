@@ -1,5 +1,6 @@
 import type { SheetLayout, BoxParams } from '../models/types';
 import type { GroupedSheetLayout } from './BinPacker';
+import { offsetOutline, translateOutline } from '../geometry/outline';
 
 function f(n: number): string {
   return (Math.round(n * 1000) / 1000).toFixed(3).replace(/\.?0+$/, '');
@@ -75,6 +76,10 @@ export function generateSVG(
         y: pt.x,
       }));
     }
+    // Kerf compensation: the laser removes kerf/2 on each side of the path, so push the
+    // path outward by that much (tabs grow, notches shrink) and keep the part inside its slot.
+    const half = params.material.kerf / 2;
+    if (half > 0) outline = translateOutline(offsetOutline(outline, half), half, half);
     return {
       colorGroup: svgColor(idx),
       pathD: buildPathD(outline, pl.x, pl.y),

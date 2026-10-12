@@ -84,6 +84,35 @@ export interface BoxParams {
 
 export type PanelGroup = 'tray' | 'lid' | 'divider' | 'inset';
 
+/**
+ * How one edge of a panel meets its neighbour.
+ * - `tab`:  fingers stick out of the edge by `depth`
+ * - `slot`: notches are cut into the edge by `depth`
+ * - `flat`: plain straight edge
+ * The jointed range starts `start` mm along the edge and is `length` mm long.
+ * `basis` is the thickness used for the minimum finger width; both mating edges
+ * must share the same `length` and `basis` so their fingers line up.
+ */
+export interface JointEdge {
+  kind: 'flat' | 'tab' | 'slot';
+  depth: number;
+  start: number;
+  length: number;
+  basis: number;
+}
+
+/**
+ * Edge treatment in panel-local axes (x right, y up). The outline is walked
+ * counter-clockwise: bottom (left to right), right (up), top (right to left),
+ * left (down).
+ */
+export interface JointPlan {
+  bottom: JointEdge;
+  right: JointEdge;
+  top: JointEdge;
+  left: JointEdge;
+}
+
 export interface Panel {
   sequenceNumber: number;
   name: string;
@@ -91,7 +120,12 @@ export interface Panel {
   panelHeight: number;
   thickness: number;
   group: PanelGroup;
+  /** Cut outline, normalised so its bounding box starts at (0,0). */
   outline: Point2D[];
+  /** Which edges mate with which neighbour; set by the geometry engine. */
+  jointPlan?: JointPlan;
+  /** Nominal (joint-free) rectangle inside `outline` coordinates; used to centre the 3D mesh. */
+  body?: Rect2D;
   colorHex: number;
   position3D: Vec3;
   rotation3D: Vec3;
