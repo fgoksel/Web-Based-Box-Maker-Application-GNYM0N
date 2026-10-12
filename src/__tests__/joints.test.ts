@@ -100,3 +100,42 @@ describe('outline helpers', () => {
     expect(Math.abs(signedArea(grown))).toBeCloseTo(121, 9);
   });
 });
+
+describe('divider cross-halving', () => {
+  const area = (pts: { x: number; y: number }[]) => Math.abs(signedArea(pts));
+
+  it('cuts one slot of half the divider height per crossing', () => {
+    const params = defaultBoxParams();
+    params.divider.enabled = true;
+    params.divider.columns = 3;
+    params.divider.rows = 4;
+    params.divider.heightOverride = 30;
+    const t = params.material.dividerThickness;
+    const geo = buildBoxGeometry(params);
+    geo.panels.forEach(p => applyJointToPanel(p, params.joint));
+
+    const cols = geo.panels.filter(p => p.name.startsWith('Col Divider'));
+    const rows = geo.panels.filter(p => p.name.startsWith('Row Divider'));
+    expect(cols).toHaveLength(2);
+    expect(rows).toHaveLength(3);
+
+    // Each column divider crosses 3 row dividers; each row divider crosses 2 column dividers.
+    for (const c of cols) {
+      expect(area(c.outline)).toBeCloseTo(c.body!.width * 30 - 3 * t * 15, 6);
+    }
+    for (const r of rows) {
+      expect(area(r.outline)).toBeCloseTo(r.body!.width * 30 - 2 * t * 15, 6);
+    }
+  });
+
+  it('leaves single dividers without slots', () => {
+    const params = defaultBoxParams();
+    params.divider.enabled = true;
+    params.divider.columns = 2;
+    params.divider.rows = 1;
+    const geo = buildBoxGeometry(params);
+    geo.panels.forEach(p => applyJointToPanel(p, params.joint));
+    const col = geo.panels.find(p => p.name === 'Col Divider 1')!;
+    expect(col.outline).toHaveLength(4);
+  });
+});

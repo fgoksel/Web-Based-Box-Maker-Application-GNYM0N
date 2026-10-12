@@ -7,6 +7,7 @@ import type {
   PanelGroup,
   JointEdge,
   JointPlan,
+  Notch,
 } from '../models/types';
 
 const PANEL_COLORS: Record<PanelGroup, number[]> = {
@@ -43,6 +44,10 @@ const FLAT: JointEdge = { kind: 'flat', depth: 0, start: 0, length: 0, basis: 0 
 
 function jointEdge(kind: 'tab' | 'slot', depth: number, start: number, length: number, basis: number): JointEdge {
   return { kind, depth, start, length, basis };
+}
+
+function notchEdge(notches: Notch[]): JointEdge {
+  return { kind: 'notches', depth: 0, start: 0, length: 0, basis: 0, notches };
 }
 
 /**
@@ -207,33 +212,59 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
     // Divider center y: floor + dH/2
     const dividerCenterY = tB + dH / 2;
 
+    // Centre lines of every divider (world x for column dividers, world z for row dividers).
+    const colX: number[] = [];
     if (cols > 1) {
       const colSlotW = (iW - tD * (cols - 1)) / cols;
-      for (let c = 1; c < cols; c++) {
-        const xPos = -iW / 2 + c * (colSlotW + tD) - tD / 2;
-        panels.push(makePanel(
-          `Col Divider ${c}`,
-          iD, dH, tD, 'divider',
-          { x: xPos, y: dividerCenterY, z: 0 },
-          { x: 0, y: Math.PI / 2, z: 0 },
-          c - 1,
-        ));
-      }
+      for (let c = 1; c < cols; c++) colX.push(-iW / 2 + c * (colSlotW + tD) - tD / 2);
     }
-
+    const rowZ: number[] = [];
     if (rows > 1) {
       const rowSlotD = (iD - tD * (rows - 1)) / rows;
-      for (let r = 1; r < rows; r++) {
-        const zPos = -iD / 2 + r * (rowSlotD + tD) - tD / 2;
-        panels.push(makePanel(
-          `Row Divider ${r}`,
-          iW, dH, tD, 'divider',
-          { x: 0, y: dividerCenterY, z: zPos },
-          { x: 0, y: 0, z: 0 },
-          (rows - 1) + r - 1,
-        ));
-      }
+      for (let r = 1; r < rows; r++) rowZ.push(-iD / 2 + r * (rowSlotD + tD) - tD / 2);
     }
+
+    // Cross-halving: where a column and a row divider cross, the column divider is
+    // slotted from the top and the row divider from the bottom, each half the height,
+    // so the two slide together.
+    const crossDepth = dH / 2;
+
+    // Column divider panel: local x runs from the front (+z) to the back, so x = iD/2 - z.
+    const colPlan: JointPlan = {
+      bottom: FLAT,
+      right: FLAT,
+      left: FLAT,
+      top: notchEdge(rowZ.map(z => ({ at: iD / 2 - z, width: tD, depth: crossDepth }))),
+    };
+    // Row divider panel: local x runs along world x, so x = world x + iW/2.
+    const rowPlan: JointPlan = {
+      top: FLAT,
+      right: FLAT,
+      left: FLAT,
+      bottom: notchEdge(colX.map(x => ({ at: x + iW / 2, width: tD, depth: crossDepth }))),
+    };
+
+    colX.forEach((xPos, i) => {
+      panels.push(makePanel(
+        `Col Divider ${i + 1}`,
+        iD, dH, tD, 'divider',
+        { x: xPos, y: dividerCenterY, z: 0 },
+        { x: 0, y: Math.PI / 2, z: 0 },
+        i,
+        colPlan,
+      ));
+    });
+
+    rowZ.forEach((zPos, i) => {
+      panels.push(makePanel(
+        `Row Divider ${i + 1}`,
+        iW, dH, tD, 'divider',
+        { x: 0, y: dividerCenterY, z: zPos },
+        { x: 0, y: 0, z: 0 },
+        colX.length + i,
+        rowPlan,
+      ));
+    });
   }
 
   if (params.inset.enabled) {
