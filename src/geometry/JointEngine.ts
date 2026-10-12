@@ -35,9 +35,31 @@ export function computeTabSpec(
   return { count, tabWidth: w, gapWidth: w };
 }
 
+const FLAT_EDGE: JointEdge = { kind: 'flat', depth: 0, start: 0, length: 0, basis: 0 };
+
 /** Points of one edge as (distance along the edge, offset outward from the panel). */
-function edgeProfile(length: number, edge: JointEdge, config: JointConfig): Array<[number, number]> {
+function edgeProfile(
+  length: number,
+  edge: JointEdge,
+  config: JointConfig,
+  reversed: boolean,
+): Array<[number, number]> {
   const pts: Array<[number, number]> = [[0, 0]];
+
+  if (edge.kind === 'notches') {
+    // Notch positions are given in panel axes; top and left edges are walked backwards.
+    const slots = (edge.notches ?? [])
+      .map(n => ({ ...n, s: reversed ? length - n.at : n.at }))
+      .sort((a, b) => a.s - b.s);
+    for (const n of slots) {
+      const s0 = n.s - n.width / 2;
+      const s1 = n.s + n.width / 2;
+      pts.push([s0, 0], [s0, -n.depth], [s1, -n.depth], [s1, 0]);
+    }
+    pts.push([length, 0]);
+    return pts;
+  }
+
   if (edge.kind === 'flat' || edge.length <= 0) {
     pts.push([length, 0]);
     return pts;
@@ -63,10 +85,10 @@ export function buildJointOutline(
   config: JointConfig,
 ): Point2D[] {
   const pts: Point2D[] = [];
-  for (const [s, o] of edgeProfile(pw, plan.bottom, config)) pts.push({ x: s, y: -o });
-  for (const [s, o] of edgeProfile(ph, plan.right, config)) pts.push({ x: pw + o, y: s });
-  for (const [s, o] of edgeProfile(pw, plan.top, config)) pts.push({ x: pw - s, y: ph + o });
-  for (const [s, o] of edgeProfile(ph, plan.left, config)) pts.push({ x: -o, y: ph - s });
+  for (const [s, o] of edgeProfile(pw, plan.bottom, config, false)) pts.push({ x: s, y: -o });
+  for (const [s, o] of edgeProfile(ph, plan.right, config, false)) pts.push({ x: pw + o, y: s });
+  for (const [s, o] of edgeProfile(pw, plan.top, config, true)) pts.push({ x: pw - s, y: ph + o });
+  for (const [s, o] of edgeProfile(ph, plan.left, config, true)) pts.push({ x: -o, y: ph - s });
   return cleanOutline(pts);
 }
 
@@ -78,49 +100,20 @@ export function applyJointToPanel(panel: Panel, config: JointConfig): void {
   const pw = panel.body?.width ?? panel.panelWidth;
   const ph = panel.body?.height ?? panel.panelHeight;
 
+  // Finger joints follow the chosen style; divider cross-halving slots are structural
+  // and stay even when the style is "none".
   const jointed = config.style === 'finger' || config.style === 'box';
-  if (!jointed || !panel.jointPlan) {
-    panel.outline = [
-      { x: 0, y: 0 },
-      { x: pw, y: 0 },
-      { x: pw, y: ph },
-      { x: 0, y: ph },
-    ];
-    panel.panelWidth = pw;
-    panel.panelHeight = ph;
-    panel.body = { x: 0, y: 0, width: pw, height: ph };
-    return;
-  }
+  const keep = (e: JointEdge): JointEdge => (jointed || e.kind === 'notches' ? e : FLAT_EDGE);
+  const p = panel.jointPlan;
+  const plan: JointPlan = p
+    ? { bottom: keep(p.bottom), right: keep(p.right), top: keep(p.top), left: keep(p.left) }
+    : { bottom: FLAT_EDGE, right: FLAT_EDGE, top: FLAT_EDGE, left: FLAT_EDGE };
 
-  const raw = buildJointOutline(pw, ph, panel.jointPlan, config);
+  const raw = buildJointOutline(pw, ph, plan, config);
   const { minX, minY, maxX, maxY } = outlineBounds(raw);
   panel.outline = translateOutline(raw, -minX, -minY);
   panel.panelWidth = maxX - minX;
   panel.panelHeight = maxY - minY;
   // The nominal rectangle sat at (0,0)..(pw,ph) before normalising.
   panel.body = { x: -minX, y: -minY, width: pw, height: ph };
-}
-
-export interface SlotSpec {
-  slotWidth: number;
-  slotDepth: number;
-  positions: number[];
-}
-
-export function computeDividerSlots(
-  panelLength: number,
-  slotCount: number,
-  spacing: number,
-  matThickness: number,
-  kerf: number,
-): SlotSpec {
-  const slotWidth = matThickness + kerf;
-  const slotDepth = panelLength / 2;
-  const positions: number[] = [];
-
-  for (let i = 1; i <= slotCount; i++) {
-    positions.push(i * spacing);
-  }
-
-  return { slotWidth, slotDepth, positions };
 }

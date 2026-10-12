@@ -88,17 +88,30 @@ export type PanelGroup = 'tray' | 'lid' | 'divider' | 'inset';
  * How one edge of a panel meets its neighbour.
  * - `tab`:  fingers stick out of the edge by `depth`
  * - `slot`: notches are cut into the edge by `depth`
+ * - `notches`: a few individually placed slots (divider cross-halving)
  * - `flat`: plain straight edge
  * The jointed range starts `start` mm along the edge and is `length` mm long.
  * `basis` is the thickness used for the minimum finger width; both mating edges
  * must share the same `length` and `basis` so their fingers line up.
  */
 export interface JointEdge {
-  kind: 'flat' | 'tab' | 'slot';
+  kind: 'flat' | 'tab' | 'slot' | 'notches';
   depth: number;
   start: number;
   length: number;
   basis: number;
+  /** For `notches`: individual slots cut into the edge (see `Notch`). */
+  notches?: Notch[];
+}
+
+/**
+ * A single slot cut into an edge, e.g. where two dividers cross.
+ * `at` is the slot centre in panel-local axes: x for bottom/top edges, y for left/right edges.
+ */
+export interface Notch {
+  at: number;
+  width: number;
+  depth: number;
 }
 
 /**
