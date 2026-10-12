@@ -5,6 +5,8 @@ import type {
   Point2D,
   Vec3,
   PanelGroup,
+  JointEdge,
+  JointPlan,
 } from '../models/types';
 
 const PANEL_COLORS: Record<PanelGroup, number[]> = {
@@ -37,6 +39,48 @@ export function computeInternalDimensions(params: BoxParams) {
   };
 }
 
+const FLAT: JointEdge = { kind: 'flat', depth: 0, start: 0, length: 0, basis: 0 };
+
+function jointEdge(kind: 'tab' | 'slot', depth: number, start: number, length: number, basis: number): JointEdge {
+  return { kind, depth, start, length, basis };
+}
+
+/**
+ * Joint plans for a tray (the box itself, or the lid built the same way).
+ * Walls stand on the base plate: their bottom tabs drop into notches in the plate,
+ * and the front/back walls push tabs through the ends of the left/right walls.
+ */
+function trayJointPlans(
+  baseW: number,
+  baseD: number,
+  innerH: number,
+  tF: number,
+  tB: number,
+) {
+  const iW = baseW - 2 * tF;
+  const floorBasis = Math.max(tF, tB);
+  return {
+    base: {
+      bottom: jointEdge('slot', tF, tF, iW, floorBasis),
+      top: jointEdge('slot', tF, tF, iW, floorBasis),
+      left: jointEdge('slot', tF, 0, baseD, floorBasis),
+      right: jointEdge('slot', tF, 0, baseD, floorBasis),
+    } as JointPlan,
+    frontBack: {
+      bottom: jointEdge('tab', tB, 0, iW, floorBasis),
+      right: jointEdge('tab', tF, 0, innerH, tF),
+      top: FLAT,
+      left: jointEdge('tab', tF, 0, innerH, tF),
+    } as JointPlan,
+    leftRight: {
+      bottom: jointEdge('tab', tB, 0, baseD, floorBasis),
+      right: jointEdge('slot', tF, 0, innerH, tF),
+      top: FLAT,
+      left: jointEdge('slot', tF, 0, innerH, tF),
+    } as JointPlan,
+  };
+}
+
 let _seqCounter = 0;
 
 function makePanel(
@@ -48,6 +92,7 @@ function makePanel(
   position3D: Vec3,
   rotation3D: Vec3,
   colorIndex: number,
+  jointPlan?: JointPlan,
 ): Panel {
   _seqCounter++;
   return {
@@ -58,6 +103,7 @@ function makePanel(
     thickness,
     group,
     outline: rectangleOutline(panelWidth, panelHeight),
+    jointPlan,
     colorHex: colorFor(group, colorIndex),
     position3D,
     rotation3D,
@@ -80,6 +126,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
   // - internal cavity spans height iH and is centered at y = tB + iH/2
   const bottomY = tB / 2;
   const cavityCenterY = tB + iH / 2;
+  const plans = trayJointPlans(W, D, iH, tF, tB);
 
   panels.push(makePanel(
     'Bottom',
@@ -87,6 +134,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
     { x: 0, y: bottomY, z: 0 },
     { x: -Math.PI / 2, y: 0, z: 0 },
     0,
+    plans.base,
   ));
 
   panels.push(makePanel(
@@ -95,6 +143,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
     { x: 0, y: cavityCenterY, z: halfD - tF / 2 },
     { x: 0, y: 0, z: 0 },
     1,
+    plans.frontBack,
   ));
 
   panels.push(makePanel(
@@ -103,6 +152,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
     { x: 0, y: cavityCenterY, z: -(halfD - tF / 2) },
     { x: 0, y: 0, z: 0 },
     2,
+    plans.frontBack,
   ));
 
   panels.push(makePanel(
@@ -111,6 +161,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
     { x: -(halfW - tF / 2), y: cavityCenterY, z: 0 },
     { x: 0, y: Math.PI / 2, z: 0 },
     3,
+    plans.leftRight,
   ));
 
   panels.push(makePanel(
@@ -119,6 +170,7 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
     { x: halfW - tF / 2, y: cavityCenterY, z: 0 },
     { x: 0, y: Math.PI / 2, z: 0 },
     4,
+    plans.leftRight,
   ));
 
   if (params.lid.enabled) {
@@ -127,21 +179,24 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
     const lD = D + lTol * 2;
     // Tray top is at y = H. Place lid above with a small clearance.
     const lidBaseY = H + lH / 2 + 2;
+    const lidPlans = trayJointPlans(lW, lD, lH - tB, tF, tB);
+    // Lid walls stand on the lid base plate, which occupies the lowest tB of the lid.
+    const lidWallY = lidBaseY + tB / 2;
 
     panels.push(makePanel('Lid Bottom', lW, lD, tB, 'lid',
-      { x: 0, y: lidBaseY - lH / 2 + tB / 2, z: 0 }, { x: -Math.PI / 2, y: 0, z: 0 }, 0));
+      { x: 0, y: lidBaseY - lH / 2 + tB / 2, z: 0 }, { x: -Math.PI / 2, y: 0, z: 0 }, 0, lidPlans.base));
 
     panels.push(makePanel('Lid Front Wall', lW - 2 * tF, lH - tB, tF, 'lid',
-      { x: 0, y: lidBaseY, z: lD / 2 - tF / 2 }, { x: 0, y: 0, z: 0 }, 1));
+      { x: 0, y: lidWallY, z: lD / 2 - tF / 2 }, { x: 0, y: 0, z: 0 }, 1, lidPlans.frontBack));
 
     panels.push(makePanel('Lid Back Wall', lW - 2 * tF, lH - tB, tF, 'lid',
-      { x: 0, y: lidBaseY, z: -(lD / 2 - tF / 2) }, { x: 0, y: 0, z: 0 }, 2));
+      { x: 0, y: lidWallY, z: -(lD / 2 - tF / 2) }, { x: 0, y: 0, z: 0 }, 2, lidPlans.frontBack));
 
     panels.push(makePanel('Lid Left Wall', lD, lH - tB, tF, 'lid',
-      { x: -(lW / 2 - tF / 2), y: lidBaseY, z: 0 }, { x: 0, y: Math.PI / 2, z: 0 }, 3));
+      { x: -(lW / 2 - tF / 2), y: lidWallY, z: 0 }, { x: 0, y: Math.PI / 2, z: 0 }, 3, lidPlans.leftRight));
 
     panels.push(makePanel('Lid Right Wall', lD, lH - tB, tF, 'lid',
-      { x: lW / 2 - tF / 2, y: lidBaseY, z: 0 }, { x: 0, y: Math.PI / 2, z: 0 }, 4));
+      { x: lW / 2 - tF / 2, y: lidWallY, z: 0 }, { x: 0, y: Math.PI / 2, z: 0 }, 4, lidPlans.leftRight));
   }
 
   if (params.divider.enabled) {

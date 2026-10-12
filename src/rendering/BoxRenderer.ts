@@ -136,10 +136,12 @@ export class BoxRenderer {
       bevelEnabled: false,
     });
 
+    // Centre on the nominal body, not the outline: tabs only stick out on some sides.
+    const body = panel.body ?? { x: 0, y: 0, width: panel.panelWidth, height: panel.panelHeight };
     geo.translate(
-      -panel.panelWidth  / 2,
-      -panel.panelHeight / 2,
-      -panel.thickness   / 2,
+      -(body.x + body.width  / 2),
+      -(body.y + body.height / 2),
+      -panel.thickness / 2,
     );
 
     const mat = new THREE.MeshStandardMaterial({

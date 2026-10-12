@@ -431,7 +431,7 @@ function regenerate3D(): void {
   currentParams = params;
 
   const geometry = buildBoxGeometry(params);
-  geometry.panels.forEach(p => applyJointToPanel(p, params.joint, params.material.kerf));
+  geometry.panels.forEach(p => applyJointToPanel(p, params.joint));
   currentGeometry = geometry;
 
   if (!boxRenderer) throw new Error('BoxRenderer not initialized');

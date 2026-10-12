@@ -1,165 +1,104 @@
-import type { Panel, Point2D, JointConfig } from '../models/types';
+import type { JointConfig, JointEdge, JointPlan, Panel, Point2D } from '../models/types';
+import { cleanOutline, outlineBounds, translateOutline } from './outline';
 
 export interface TabSpec {
+  /** Number of fingers (tabs) along the jointed range. */
   count: number;
   tabWidth: number;
   gapWidth: number;
 }
 
+/**
+ * Splits `edgeLength` into `2*count - 1` equal segments (tab, gap, ..., tab).
+ * The pattern is symmetric, so two mating edges line up whichever way they are walked.
+ */
 export function computeTabSpec(
   edgeLength: number,
   matThickness: number,
   config: JointConfig,
 ): TabSpec {
   const minTabWidth = matThickness * 1.5;
+  const segmentWidth = (count: number) => edgeLength / (2 * count - 1);
 
+  let count: number;
   if (config.tabWidthOverride > 0) {
-    const tw = config.tabWidthOverride;
-    const rawCount = Math.round(edgeLength / (tw * 2));
-    let count = Math.max(1, rawCount % 2 === 0 ? rawCount - 1 : rawCount);
-    // Even with an override, don't allow fingers so small they become fragile.
-    while (count > 1 && edgeLength / (count * 2) < minTabWidth) {
-      count -= 2;
-    }
-    const tabWidth = edgeLength / (count * 2);
-    return { count, tabWidth, gapWidth: tabWidth };
+    const segments = Math.max(1, Math.round(edgeLength / config.tabWidthOverride));
+    count = Math.max(1, Math.floor((segments + 1) / 2));
+  } else {
+    count = Math.max(1, Math.floor(config.minTabCount));
   }
 
-  let count = config.minTabCount;
-  if (count % 2 === 0) count += 1;
+  // Never allow fingers so small that they become fragile.
+  while (count > 1 && segmentWidth(count) < minTabWidth) count--;
 
-  while (count >= 1) {
-    const tabWidth = edgeLength / (count * 2);
-    if (tabWidth >= minTabWidth) {
-      return { count, tabWidth, gapWidth: tabWidth };
-    }
-    count -= 2;
-  }
-
-  return { count: 1, tabWidth: edgeLength / 2, gapWidth: edgeLength / 2 };
+  const w = segmentWidth(count);
+  return { count, tabWidth: w, gapWidth: w };
 }
 
-export function buildFingerJointOutline(
-  pw: number,
-  ph: number,
-  matThickness: number,
-  kerf: number,
-  config: JointConfig,
-): Point2D[] {
-  const t = matThickness;
-  const k = kerf;
-  const pts: Point2D[] = [];
-
-  const topSpec   = computeTabSpec(pw, t, config);
-  const rightSpec = computeTabSpec(ph, t, config);
-  const botSpec   = computeTabSpec(pw, t, config);
-  const leftSpec  = computeTabSpec(ph, t, config);
-
-  let cx = k;
-  for (let i = 0; i < topSpec.count * 2; i++) {
-    const tab = i % 2 === 0;
-    const sw  = topSpec.tabWidth;
-    if (tab) {
-      pts.push({ x: cx,      y: -t + k });
-      pts.push({ x: cx + sw, y: -t + k });
-      pts.push({ x: cx + sw, y: k });
-    } else {
-      pts.push({ x: cx,      y: k });
-      pts.push({ x: cx + sw, y: k });
-    }
-    cx += sw;
+/** Points of one edge as (distance along the edge, offset outward from the panel). */
+function edgeProfile(length: number, edge: JointEdge, config: JointConfig): Array<[number, number]> {
+  const pts: Array<[number, number]> = [[0, 0]];
+  if (edge.kind === 'flat' || edge.length <= 0) {
+    pts.push([length, 0]);
+    return pts;
   }
 
-  let cy = k;
-  for (let i = 0; i < rightSpec.count * 2; i++) {
-    const tab = i % 2 === 0;
-    const sh  = rightSpec.tabWidth;
-    if (tab) {
-      pts.push({ x: pw + t - k, y: cy });
-      pts.push({ x: pw + t - k, y: cy + sh });
-      pts.push({ x: pw - k,     y: cy + sh });
-    } else {
-      pts.push({ x: pw - k, y: cy });
-      pts.push({ x: pw - k, y: cy + sh });
-    }
-    cy += sh;
-  }
+  const spec = computeTabSpec(edge.length, edge.basis, config);
+  const segments = 2 * spec.count - 1;
+  const offset = edge.kind === 'tab' ? edge.depth : -edge.depth;
 
-  let bx = pw - k;
-  for (let i = 0; i < botSpec.count * 2; i++) {
-    const tab = i % 2 === 0;
-    const sw  = botSpec.tabWidth;
-    if (tab) {
-      pts.push({ x: bx,      y: ph + t - k });
-      pts.push({ x: bx - sw, y: ph + t - k });
-      pts.push({ x: bx - sw, y: ph - k });
-    } else {
-      pts.push({ x: bx,      y: ph - k });
-      pts.push({ x: bx - sw, y: ph - k });
-    }
-    bx -= sw;
+  for (let i = 0; i < segments; i += 2) {
+    const s0 = edge.start + i * spec.tabWidth;
+    const s1 = s0 + spec.tabWidth;
+    pts.push([s0, 0], [s0, offset], [s1, offset], [s1, 0]);
   }
-
-  let ly = ph - k;
-  for (let i = 0; i < leftSpec.count * 2; i++) {
-    const tab = i % 2 === 0;
-    const sh  = leftSpec.tabWidth;
-    if (tab) {
-      pts.push({ x: -t + k, y: ly });
-      pts.push({ x: -t + k, y: ly - sh });
-      pts.push({ x: k,      y: ly - sh });
-    } else {
-      pts.push({ x: k, y: ly });
-      pts.push({ x: k, y: ly - sh });
-    }
-    ly -= sh;
-  }
-
+  pts.push([length, 0]);
   return pts;
 }
 
-export function applyJointToPanel(
-  panel: Panel,
+export function buildJointOutline(
+  pw: number,
+  ph: number,
+  plan: JointPlan,
   config: JointConfig,
-  kerf: number,
-): void {
-  const { panelWidth: pw, panelHeight: ph, thickness: t } = panel;
-  const k = kerf / 2;
+): Point2D[] {
+  const pts: Point2D[] = [];
+  for (const [s, o] of edgeProfile(pw, plan.bottom, config)) pts.push({ x: s, y: -o });
+  for (const [s, o] of edgeProfile(ph, plan.right, config)) pts.push({ x: pw + o, y: s });
+  for (const [s, o] of edgeProfile(pw, plan.top, config)) pts.push({ x: pw - s, y: ph + o });
+  for (const [s, o] of edgeProfile(ph, plan.left, config)) pts.push({ x: -o, y: ph - s });
+  return cleanOutline(pts);
+}
 
-  switch (config.style) {
-    case 'finger':
-    case 'box':
-      panel.outline = buildFingerJointOutline(pw, ph, t, k, config);
-      {
-        // Normalize outline to (0,0) so width/height reflect the real cut size.
-        // Finger/box joints can extend beyond the original rectangle by thickness.
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const pt of panel.outline) {
-          if (pt.x < minX) minX = pt.x;
-          if (pt.y < minY) minY = pt.y;
-          if (pt.x > maxX) maxX = pt.x;
-          if (pt.y > maxY) maxY = pt.y;
-        }
+/**
+ * Replaces the panel's rectangle with its jointed outline. Safe to call repeatedly:
+ * the nominal size is read back from `panel.body`.
+ */
+export function applyJointToPanel(panel: Panel, config: JointConfig): void {
+  const pw = panel.body?.width ?? panel.panelWidth;
+  const ph = panel.body?.height ?? panel.panelHeight;
 
-        if (Number.isFinite(minX) && Number.isFinite(minY) && Number.isFinite(maxX) && Number.isFinite(maxY)) {
-          const dx = -minX;
-          const dy = -minY;
-          panel.outline = panel.outline.map((pt) => ({ x: pt.x + dx, y: pt.y + dy }));
-          panel.panelWidth = maxX - minX;
-          panel.panelHeight = maxY - minY;
-        }
-      }
-      break;
-    case 'none':
-    default:
-      panel.outline = [
-        { x: k,      y: k },
-        { x: pw - k, y: k },
-        { x: pw - k, y: ph - k },
-        { x: k,      y: ph - k },
-      ];
-      break;
+  const jointed = config.style === 'finger' || config.style === 'box';
+  if (!jointed || !panel.jointPlan) {
+    panel.outline = [
+      { x: 0, y: 0 },
+      { x: pw, y: 0 },
+      { x: pw, y: ph },
+      { x: 0, y: ph },
+    ];
+    panel.panelWidth = pw;
+    panel.panelHeight = ph;
+    panel.body = { x: 0, y: 0, width: pw, height: ph };
+    return;
   }
+
+  const raw = buildJointOutline(pw, ph, panel.jointPlan, config);
+  const { minX, minY, maxX, maxY } = outlineBounds(raw);
+  panel.outline = translateOutline(raw, -minX, -minY);
+  panel.panelWidth = maxX - minX;
+  panel.panelHeight = maxY - minY;
+  // The nominal rectangle sat at (0,0)..(pw,ph) before normalising.
+  panel.body = { x: -minX, y: -minY, width: pw, height: ph };
 }
 
 export interface SlotSpec {
