@@ -206,6 +206,8 @@ Each placed outline is rotated if needed, kerf-compensated, and written as an SV
 
 The file contains data only, never code. Importing restores the parameters and the sheet settings.
 
+When a file is imported, every field is checked (see [Validation](#validation)). Only the checked values are copied into the application; unknown fields are ignored and reported.
+
 ---
 
 ## Validation
@@ -221,6 +223,16 @@ The controller rejects a design before generating when:
 
 Invalid fields are highlighted and the reason is shown.
 
+### Importing a JSON file
+
+An imported file is validated field by field before anything is applied. All problems are collected and listed together, each naming the exact field, for example `params.material.kerf is missing` or `params.joint.style must be one of finger, box, dovetail, none (got "zigzag")`.
+
+- **Structure:** the file must be a JSON object with a `params` object. Empty, broken or oversized input (over 1 MB) is rejected.
+- **Types:** numbers must be real numbers (JSON `null`, text and `NaN`-like values are rejected), flags must be `true` or `false`, and each section must be an object.
+- **Ranges:** dimensions and thicknesses must be greater than zero and not absurdly large, kerf and tolerance cannot be negative, counts must be whole numbers, and the joint style, label face and sheet size must be known values.
+- **Buildable:** the walls must leave room inside the box, a lid must be taller than the base thickness, and divider grids must fit.
+- **Missing optional sections** (`joint`, `divider`, `lid`, `inset`, `label`, `sheet`) fall back to the default values, with a note. Fields that are not used are ignored, with a note.
+
 ---
 
 ## Testing
@@ -234,6 +246,7 @@ The tests cover:
 - **Geometry:** internal dimensions, panel list, lid panels, grounding of the bottom and walls, dividers on the floor.
 - **Joints:** tab sizing and minimum finger width, outlines without invalid numbers, normalisation, repeatable results, flat style, outline helpers, and the divider slot sizes.
 - **Assembly:** the generated panels are placed in 3D and the whole volume is sampled. Every point of nominal material must be covered by exactly one panel, with no overlap, no gap and no stray tab. This is checked for the default box, different frame and base thicknesses, the lid, divider grids and lower dividers.
+- **Project files:** valid files round-trip exactly, and unreadable input, wrong types, out-of-range values, boxes that cannot be built, unknown fields and a `__proto__` key are all handled.
 - **Layout:** overflow detection, no overlapping panels, grouping by thickness.
 - **SVG:** a valid document with paths, and the overflow comment.
 
@@ -265,7 +278,6 @@ After the first version, the joints were reworked so that mating edges are compl
 - Dividers interlock with each other but are not fixed to the walls or the base plate, which would need slots in the middle of those panels.
 - The `box` joint style currently behaves like `finger`.
 - The `inset` (custom compartments) and `label` settings exist in the data model but are not available in the interface yet.
-- JSON import checks the overall structure only; a stricter check of every field is planned.
 - Packing uses a single heuristic and is not guaranteed to be optimal. Comparing it with other packing methods is planned.
 - The custom sheet size exists in the code but not in the interface.
 - Only rectangular boxes are supported.

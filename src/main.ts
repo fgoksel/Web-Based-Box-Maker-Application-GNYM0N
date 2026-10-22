@@ -593,7 +593,16 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
   refreshThicknessSelector();
 }
 
+function showJsonMessage(lines: string[]): void {
+  const box = el<HTMLElement>('jsonMsg');
+  const shown = lines.slice(0, 8);
+  if (lines.length > shown.length) shown.push(`...and ${lines.length - shown.length} more`);
+  box.textContent = shown.map(l => `• ${l}`).join('\n');
+  box.setAttribute('data-kind', lines.length ? 'error' : '');
+}
+
 function openJsonModal(initialValue: string, title: string): void {
+  showJsonMessage([]);
   el<HTMLElement>('jsonModalTitle').textContent = title;
   el<HTMLTextAreaElement>('jsonArea').value = initialValue;
   el<HTMLElement>('jsonModal').style.display = 'flex';
@@ -702,7 +711,7 @@ function initUI(): void {
     const raw = el<HTMLTextAreaElement>('jsonArea').value;
     const res = importProject(raw);
     if (!res.success || !res.project) {
-      setValidMessage(res.validation.errors.join('\n'), 'error');
+      showJsonMessage(res.validation.errors);
       return;
     }
 
@@ -712,10 +721,21 @@ function initUI(): void {
     currentLayout = null;
     highlightSeq = null;
 
-    regenerate3D();
-    runPacking();
-    validateUI(true);
+    try {
+      regenerate3D();
+      runPacking();
+      validateUI(true);
+    } catch (e) {
+      showJsonMessage([(e as Error).message]);
+      return;
+    }
     closeJsonModal();
+    const notes = res.validation.warnings.length;
+    toast(
+      notes ? `Project imported (${notes} note${notes === 1 ? '' : 's'}: ${res.validation.warnings[0]})` : 'Project imported',
+      notes ? 'info' : 'ok',
+      notes ? 4500 : 2200,
+    );
   });
 
   el<HTMLButtonElement>('btnCopyJSON').addEventListener('click', async () => {
