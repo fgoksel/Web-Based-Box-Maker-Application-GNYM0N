@@ -151,7 +151,42 @@ describe('importProject: field checks', () => {
   it('rejects an unknown joint style', () => {
     const file = validFile();
     file.params.joint.style = 'zigzag';
-    expect(errorsOf(file)[0]).toContain('params.joint.style must be one of finger, box, dovetail, none');
+    expect(errorsOf(file)[0]).toContain('params.joint.style must be one of finger, none');
+  });
+
+  it('no longer accepts dovetail joints, which a laser cannot cut', () => {
+    const file = validFile();
+    file.params.joint.style = 'dovetail';
+    expect(errorsOf(file)[0]).toContain('params.joint.style must be one of finger, none (got "dovetail")');
+  });
+
+  it('reads the old name "box" as finger joints and says so', () => {
+    const file = validFile();
+    file.params.joint.style = 'box';
+    const res = importObject(file);
+    expect(res.success).toBe(true);
+    expect(res.project?.params.joint.style).toBe('finger');
+    expect(res.validation.warnings.join(' ')).toContain('"box" is now called "finger"');
+  });
+
+  it('reads the fit clearance, defaulting to 0 for files that predate it', () => {
+    const file = validFile();
+    file.params.material.fitClearance = 0.15;
+    expect(importObject(file).project?.params.material.fitClearance).toBe(0.15);
+
+    delete file.params.material.fitClearance;
+    const old = importObject(file);
+    expect(old.success).toBe(true);
+    expect(old.project?.params.material.fitClearance).toBe(0);
+    expect(old.validation.warnings).toEqual([]);
+  });
+
+  it('rejects a fit clearance that is negative, too large or not a number', () => {
+    for (const bad of [-0.1, 1.5, 'tight']) {
+      const file = validFile();
+      file.params.material.fitClearance = bad;
+      expect(errorsOf(file).some(e => e.startsWith('params.material.fitClearance')), String(bad)).toBe(true);
+    }
   });
 
   it('rejects fractional counts', () => {

@@ -18,6 +18,7 @@ export function defaultBoxParams(): BoxParams {
       baseThickness:    3,
       dividerThickness: 3,
       kerf:             0.1,
+      fitClearance:     0,
     },
     joint: {
       style:            'finger',
@@ -76,7 +77,7 @@ export function exportProject(
 type Obj = Record<string, unknown>;
 
 const MAX_JSON_CHARS = 1_000_000;
-const TAB_STYLES = ['finger', 'box', 'dovetail', 'none'] as const;
+const TAB_STYLES = ['finger', 'none'] as const;
 const LABEL_FACES = ['front', 'back', 'left', 'right', 'top', 'bottom'] as const;
 const SHEET_SIZES = ['A4', 'A3', 'A2', 'A1', 'custom'] as const;
 
@@ -215,6 +216,15 @@ class Reader {
   }
 }
 
+/** Older files may say "box", which was only ever another name for finger joints. */
+function readJointStyle(r: Reader, joint: Obj, path: string, fallback: BoxParams['joint']['style']): BoxParams['joint']['style'] {
+  if (joint.style === 'box') {
+    r.warnings.push(`${path}.style "box" is now called "finger"; using finger joints`);
+    return 'finger';
+  }
+  return r.oneOf(joint, 'style', path, TAB_STYLES, fallback);
+}
+
 const DIM = { above: 0, max: 10000 };
 const THICKNESS = { above: 0, max: 100 };
 
@@ -237,12 +247,17 @@ function readParams(r: Reader, src: Obj): BoxParams {
   const material = r.section(src, 'material', path);
   if (material) {
     const mp = `${path}.material`;
-    r.unknownKeys(material, mp, ['frameThickness', 'baseThickness', 'dividerThickness', 'kerf']);
+    r.unknownKeys(material, mp, ['frameThickness', 'baseThickness', 'dividerThickness', 'kerf', 'fitClearance']);
     params.material = {
       frameThickness: r.number(material, 'frameThickness', mp, d.material.frameThickness, THICKNESS),
       baseThickness: r.number(material, 'baseThickness', mp, d.material.baseThickness, THICKNESS),
       dividerThickness: r.number(material, 'dividerThickness', mp, d.material.dividerThickness, THICKNESS),
       kerf: r.number(material, 'kerf', mp, d.material.kerf, { min: 0, max: 5 }),
+      // Added after the first file format, so files without it are fine.
+      fitClearance:
+        material.fitClearance === undefined
+          ? d.material.fitClearance
+          : r.number(material, 'fitClearance', mp, d.material.fitClearance, { min: 0, max: 1 }),
     };
   }
 
@@ -251,7 +266,7 @@ function readParams(r: Reader, src: Obj): BoxParams {
     const jp = `${path}.joint`;
     r.unknownKeys(joint, jp, ['style', 'minTabCount', 'tabWidthOverride']);
     params.joint = {
-      style: r.oneOf(joint, 'style', jp, TAB_STYLES, d.joint.style),
+      style: readJointStyle(r, joint, jp, d.joint.style),
       minTabCount: r.number(joint, 'minTabCount', jp, d.joint.minTabCount, { min: 1, max: 99, integer: true }),
       tabWidthOverride: r.number(joint, 'tabWidthOverride', jp, d.joint.tabWidthOverride, { min: 0, max: 1000 }),
     };

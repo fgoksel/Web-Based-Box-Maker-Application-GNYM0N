@@ -102,7 +102,7 @@ export function applyJointToPanel(panel: Panel, config: JointConfig): void {
 
   // Finger joints follow the chosen style; divider cross-halving slots are structural
   // and stay even when the style is "none".
-  const jointed = config.style === 'finger' || config.style === 'box';
+  const jointed = config.style === 'finger';
   const keep = (e: JointEdge): JointEdge => (jointed || e.kind === 'notches' ? e : FLAT_EDGE);
   const p = panel.jointPlan;
   const plan: JointPlan = p
