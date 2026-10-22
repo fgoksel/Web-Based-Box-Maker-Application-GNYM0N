@@ -33,9 +33,10 @@ Everything runs in the browser. There is no server, no database and no account.
 | Dividers | A grid of column and row dividers, optionally lower than the walls. Dividers cross-halve (interlock) at every crossing. |
 | Lid | Optional lid built the same way as the tray, with a clearance tolerance. |
 | 3D preview | Rotatable, zoomable model with numbered parts. Wireframe, explode and reset-camera controls. Clicking a part in the list highlights it. |
-| Sheet layout | Panels are packed onto A4, A3, A2 or A1 with a configurable gap. Overflowing panels are reported. Panels can optionally be grouped by material thickness. |
+| Sheet layout | Panels are packed onto A4, A3, A2, A1 or a custom sheet size, with a configurable gap. Overflowing panels are reported. Panels can optionally be grouped by material thickness. |
 | SVG export | Cut paths with part numbers, redundant points removed, kerf compensation applied. |
 | Save and load | The whole design is saved to and loaded from a JSON file. |
+| Live update | Once a box has been generated, changing a value rebuilds the model (and the sheet layout) automatically after a short pause. This can be switched off. |
 | Validation | Invalid input is rejected with a message and a highlighted field. |
 
 ---
@@ -60,10 +61,12 @@ The build output in `dist/` is a plain static website that can be hosted anywher
 1. **Enter the parameters** in the left panel: box dimensions, material thicknesses, kerf, joint style, and the optional lid and dividers.
 2. **Generate** builds the panels and shows the 3D model.
 3. Use **Wireframe**, **Explode** and **Reset Camera** to inspect the model. Click a part in the list on the right to highlight it.
-4. Choose a **sheet size** and gap in the right panel, then run **Bin Packing**. Switch to **Sheet Layout** to see the arrangement and the sheet efficiency.
+4. Choose a **sheet size** (or *Custom size* with its own width and height) and a gap in the right panel, then run **Bin Packing**. Switch to **Sheet Layout** to see the arrangement and the sheet efficiency.
 5. Turn on **Separate by Thickness** if you cut different thicknesses from different sheets.
 6. **Export SVG** to get the cut file.
 7. **Export JSON** saves the design. **Import JSON** loads one back.
+
+Changing a value after the first **Generate** updates the model automatically (switch *Update automatically* off to disable this). **Reset to defaults** restores the starting values. *Finger Width* sets a fixed finger width instead of the automatic one. On a narrow screen the three columns stack and the page scrolls.
 
 All measurements are in millimetres.
 
@@ -279,7 +282,6 @@ After the first version, the joints were reworked so that mating edges are compl
 - The `box` joint style currently behaves like `finger`.
 - The `inset` (custom compartments) and `label` settings exist in the data model but are not available in the interface yet.
 - Packing uses a single heuristic and is not guaranteed to be optimal. Comparing it with other packing methods is planned.
-- The custom sheet size exists in the code but not in the interface.
 - Only rectangular boxes are supported.
 
 ---
