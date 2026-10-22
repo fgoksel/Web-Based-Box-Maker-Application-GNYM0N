@@ -194,13 +194,13 @@ A part that fits nowhere is marked `overflow` and is left out of the SVG, with a
 
 #### How the methods compare
 
-`npm run benchmark` packs 300 random boxes (the same ones every run: widths 60 to 300 mm, depths 50 to 250 mm, heights 30 to 150 mm, 2 to 6 mm material, 40% with a lid, 50% with dividers) with each method and prints this table:
+`npm run benchmark` packs 300 random boxes (the same ones every run: widths 60 to 300 mm, depths 50 to 250 mm, heights 30 to 150 mm, 2 to 6 mm material, about 40% with a lid and half with dividers) with each method and prints this table. The times depend on the computer; the other columns do not.
 
 | Method | Strip use | Best or tied | Fits A3 | Fits A2 | Smallest sheet (cm²) | Time per box |
 |---|---|---|---|---|---|---|
-| Guillotine | 73.5% | 96 | 46.7% | 89.7% | 2119 | 0.018 ms |
-| MaxRects | 71.1% | 99 | **50.3%** | **92.3%** | **2005** | 0.029 ms |
-| Skyline | **79.3%** | **257** | 47.7% | 90.0% | 2096 | **0.008 ms** |
+| Guillotine | 73.7% | 90 | 43.7% | 90.0% | 2142 | 0.021 ms |
+| MaxRects | 70.3% | 102 | **46.3%** | **92.3%** | **2044** | 0.016 ms |
+| Skyline | **79.4%** | **260** | 43.7% | 91.0% | 2119 | **0.007 ms** |
 
 - *Strip use* packs onto a 420 mm wide sheet of unlimited length and divides the material area by the rectangle that was used; *Best or tied* counts the boxes for which no other method needed a shorter strip.
 - *Fits A3 / A2* is how often every panel fits on that sheet.
@@ -270,20 +270,32 @@ An imported file is validated field by field before anything is applied. All pro
 ## Testing
 
 ```bash
-npm test
+npm test             # all tests
+npm run benchmark    # only the packing comparison, with its table printed
 ```
 
-The tests cover:
+There are about 150 automated tests. They cover:
 
-- **Geometry:** internal dimensions, panel list, lid panels, grounding of the bottom and walls, dividers on the floor.
+- **Geometry:** internal dimensions, panel list, lid panels, grounding of the bottom and walls, dividers on the floor, and divider positions for equal and exact compartment sizes.
 - **Joints:** tab sizing and minimum finger width, outlines without invalid numbers, normalisation, repeatable results, flat style, outline helpers, and the divider slot sizes.
-- **Assembly:** the generated panels are placed in 3D and the whole volume is sampled. Every point of nominal material must be covered by exactly one panel, with no overlap, no gap and no stray tab. This is checked for the default box, different frame and base thicknesses, the lid, divider grids and lower dividers.
+- **Assembly:** the generated panels are placed in 3D and the whole volume is sampled. Every point of nominal material must be covered by exactly one panel, with no overlap, no gap and no stray tab. This is checked for the default box, different frame and base thicknesses, the lid, divider grids, lower dividers and exact compartment sizes.
+- **Compartments and labels:** the layout maths, parsing of typed sizes, which panel carries a label on each face, the fit rules, and how the text is placed and turned in the SVG.
+- **Fit clearance:** a slot ends up exactly the clearance wider than its tab once the laser kerf is removed.
 - **Project files:** valid files round-trip exactly, and unreadable input, wrong types, out-of-range values, boxes that cannot be built, unknown fields and a `__proto__` key are all handled.
-- **Layout:** overflow detection, no overlapping panels, grouping by thickness, and the choice of packing method.
-- **Packing methods:** each of the three methods keeps every part inside the sheet, without overlaps and with the gap, on random parts and on 300 random boxes. `npm run benchmark` also prints the comparison table.
+- **Packing:** each of the three methods keeps every part inside the sheet, without overlaps and with the gap, on random parts and on random boxes. The benchmark table is printed by `npm run benchmark`.
 - **SVG:** a valid document with paths, and the overflow comment.
 
-The assembly tests take around ten seconds because they sample the volume.
+### Random-box tests
+
+Hand-picked examples only show that the cases someone thought of work, so a second group of tests runs hundreds of random boxes through the whole pipeline. The generator is seeded, so a failure names a box that can be reproduced. It draws sizes, materials, lid, dividers (equal or exact sizes), an engraved label, kerf, fit clearance and joint settings, and skips combinations the application would refuse.
+
+- **Geometry (300 boxes):** every panel has finite numbers, unique names and sequence numbers, an outline that starts at `(0, 0)`, only axis-aligned edges and no self-crossing, and a label appears on exactly one panel when there is one.
+- **SVG (80 boxes, any packing method):** well-formed tags, valid path data, no `NaN` or `undefined`, and escaped text.
+- **Project files (300 boxes):** every box exports and imports back to exactly the same settings.
+- **Mangled files:** thousands of damaged files (cut short, a character changed, a value replaced by the wrong type, a field removed) must never crash the importer, and anything it does accept must be buildable. This found no gaps in the checks.
+- **Assembly (6 boxes):** the 3D sampling check on random boxes.
+
+The assembly and random-box tests take a while because they sample the box volume; the whole suite takes under a minute on an ordinary computer.
 
 ---
 
