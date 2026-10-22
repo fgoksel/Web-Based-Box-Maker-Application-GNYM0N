@@ -127,7 +127,7 @@ function readBoxParamsFromUI(): BoxParams {
 
   params.joint.style = (el<HTMLSelectElement>('tabStyle').value as BoxParams['joint']['style']);
   params.joint.minTabCount = num('tabN');
-  params.joint.tabWidthOverride = 0;
+  params.joint.tabWidthOverride = Number(el<HTMLInputElement>('tabW').value);
 
   const lidEnabled = el<HTMLElement>('togLid').classList.contains('on');
   params.lid.enabled = lidEnabled;
@@ -176,6 +176,10 @@ function validateParams(params: BoxParams): UIValidationResult {
   const tabOk = Number.isInteger(params.joint.minTabCount) && params.joint.minTabCount >= 1;
   markFieldValid('tabN', tabOk);
   if (!tabOk) errors.push('Min tab count must be an integer >= 1');
+
+  const fingerOk = Number.isFinite(params.joint.tabWidthOverride) && params.joint.tabWidthOverride >= 0;
+  markFieldValid('tabW', fingerOk);
+  if (!fingerOk) errors.push('Finger width must be 0 (automatic) or greater');
 
   const colsOk = Number.isInteger(params.divider.columns) && params.divider.columns >= 1;
   const rowsOk = Number.isInteger(params.divider.rows) && params.divider.rows >= 1;
@@ -230,9 +234,42 @@ function validateParams(params: BoxParams): UIValidationResult {
   return { valid: errors.length === 0, params: errors.length ? null : params, errors };
 }
 
+function validateSheetUI(): string[] {
+  const errors: string[] = [];
+
+  const gapOk = Number.isFinite(Number(el<HTMLInputElement>('shGap').value)) && Number(el<HTMLInputElement>('shGap').value) >= 0;
+  markFieldValid('shGap', gapOk);
+  if (!gapOk) errors.push('Sheet gap must be 0 or greater');
+
+  const custom = el<HTMLSelectElement>('shSz').value === 'custom';
+  for (const [id, name] of [['shW', 'Sheet width'], ['shH', 'Sheet height']] as const) {
+    const v = Number(el<HTMLInputElement>(id).value);
+    const ok = !custom || (Number.isFinite(v) && v > 0);
+    markFieldValid(id, ok);
+    if (!ok) errors.push(`${name} must be greater than 0`);
+  }
+  return errors;
+}
+
+/** Re-checks the inputs while typing: shows problems straight away and clears them once fixed. */
+function refreshValidation(): UIValidationResult {
+  const result = validateUI(false);
+  const box = el<HTMLElement>('validMsg');
+  if (!result.valid) setValidMessage(result.errors.join('\n'), 'error');
+  else if (box.getAttribute('data-kind') === 'error') setValidMessage('Inputs look valid', 'ok');
+  return result;
+}
+
 function validateUI(showMessage = true): UIValidationResult {
   const params = readBoxParamsFromUI();
-  const result = validateParams(params);
+  const boxResult = validateParams(params);
+  const sheetErrors = validateSheetUI();
+  const errors = [...boxResult.errors, ...sheetErrors];
+  const result: UIValidationResult = {
+    valid: errors.length === 0,
+    params: errors.length === 0 ? boxResult.params : null,
+    errors,
+  };
 
   if (showMessage) {
     if (result.valid) setValidMessage('Inputs look valid', 'ok');
@@ -254,7 +291,10 @@ function readSheetFromUI(): SheetConfig {
   const size = el<HTMLSelectElement>('shSz').value;
   config.size = size as SheetConfig['size'];
 
-  if (config.size !== 'custom' && SHEET_SIZES[size]) {
+  if (config.size === 'custom') {
+    config.width = Number(el<HTMLInputElement>('shW').value);
+    config.height = Number(el<HTMLInputElement>('shH').value);
+  } else if (SHEET_SIZES[size]) {
     const [w, h] = SHEET_SIZES[size];
     config.width = w;
     config.height = h;
@@ -558,6 +598,43 @@ function doExportProjectJSON(): void {
   });
 }
 
+function syncCustomSheet(): void {
+  el<HTMLElement>('customSheetSub').classList.toggle('open', el<HTMLSelectElement>('shSz').value === 'custom');
+}
+
+let liveTimer: number | undefined;
+let livePending: 'model' | 'sheet' | null = null;
+
+/**
+ * Rebuilds the model (or just the sheet layout) shortly after a value changes, so typing
+ * "125" does not rebuild three times. Only runs once a box has been generated.
+ */
+function scheduleLiveUpdate(kind: 'model' | 'sheet'): void {
+  if (!el<HTMLElement>('togLive').classList.contains('on') || !currentGeometry) return;
+  livePending = livePending === 'model' ? 'model' : kind;
+  window.clearTimeout(liveTimer);
+  liveTimer = window.setTimeout(runLiveUpdate, 350);
+}
+
+function runLiveUpdate(): void {
+  const kind = livePending;
+  livePending = null;
+  if (!kind || !currentGeometry) return;
+  if (!validateUI(false).valid) return;
+
+  const hadLayout = !!(currentLayout || currentGroupedLayouts);
+  try {
+    if (kind === 'model') {
+      regenerate3D();
+      if (hadLayout) runPacking();
+    } else if (hadLayout) {
+      runPacking();
+    }
+  } catch (e) {
+    setValidMessage((e as Error).message, 'error');
+  }
+}
+
 function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): void {
   const p = project.params;
   const sheet = project.sheet;
@@ -573,6 +650,7 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
 
   el<HTMLSelectElement>('tabStyle').value = p.joint.style;
   el<HTMLInputElement>('tabN').value = String(p.joint.minTabCount);
+  el<HTMLInputElement>('tabW').value = String(p.joint.tabWidthOverride);
 
   toggleOn(el<HTMLElement>('togLid'), p.lid.enabled);
   el<HTMLInputElement>('lidH').value = String(p.lid.height);
@@ -585,6 +663,9 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
 
   el<HTMLSelectElement>('shSz').value = sheet.size;
   el<HTMLInputElement>('shGap').value = String(sheet.gap);
+  el<HTMLInputElement>('shW').value = String(sheet.width);
+  el<HTMLInputElement>('shH').value = String(sheet.height);
+  syncCustomSheet();
 
   el<HTMLElement>('lidSub').classList.toggle('open', p.lid.enabled);
   el<HTMLElement>('divSub').classList.toggle('open', p.divider.enabled);
@@ -628,13 +709,15 @@ function initUI(): void {
     const enabled = !lidToggle.classList.contains('on');
     toggleOn(lidToggle, enabled);
     el<HTMLElement>('lidSub').classList.toggle('open', enabled);
-    validateUI(false);
+    refreshValidation();
+    scheduleLiveUpdate('model');
   });
   divRow.addEventListener('click', () => {
     const enabled = !divToggle.classList.contains('on');
     toggleOn(divToggle, enabled);
     el<HTMLElement>('divSub').classList.toggle('open', enabled);
-    validateUI(false);
+    refreshValidation();
+    scheduleLiveUpdate('model');
   });
 
   sepRow.addEventListener('click', () => {
@@ -690,15 +773,37 @@ function initUI(): void {
   el<HTMLButtonElement>('btnSVG').addEventListener('click', () => doExportSVG());
   el<HTMLButtonElement>('btnExport').addEventListener('click', () => doExportProjectJSON());
 
-  const watchedInputs = [
+  const modelInputs = [
     'bW', 'bD', 'bH', 'tF', 'tB', 'tD', 'kerf',
-    'tabStyle', 'tabN', 'lidH', 'lidTol', 'dCols', 'dRows', 'dH', 'shSz', 'shGap',
+    'tabStyle', 'tabN', 'tabW', 'lidH', 'lidTol', 'dCols', 'dRows', 'dH',
   ];
-  for (const id of watchedInputs) {
-    const node = el<HTMLElement>(id);
-    node.addEventListener('input', () => validateUI(false));
-    node.addEventListener('change', () => validateUI(false));
+  const sheetInputs = ['shSz', 'shGap', 'shW', 'shH'];
+  for (const [ids, kind] of [[modelInputs, 'model'], [sheetInputs, 'sheet']] as const) {
+    for (const id of ids) {
+      const node = el<HTMLElement>(id);
+      const onChange = () => {
+        if (id === 'shSz') syncCustomSheet();
+        refreshValidation();
+        scheduleLiveUpdate(kind);
+      };
+      node.addEventListener('input', onChange);
+      node.addEventListener('change', onChange);
+    }
   }
+  syncCustomSheet();
+
+  el<HTMLElement>('togLiveRow').addEventListener('click', () => {
+    const on = !el<HTMLElement>('togLive').classList.contains('on');
+    toggleOn(el<HTMLElement>('togLive'), on);
+    toast(on ? 'Automatic update on' : 'Automatic update off', 'info');
+  });
+
+  el<HTMLButtonElement>('btnDefaults').addEventListener('click', () => {
+    applyProjectToUI({ params: defaultBoxParams(), sheet: defaultSheetConfig() });
+    refreshValidation();
+    scheduleLiveUpdate('model');
+    toast('Values reset to defaults', 'info');
+  });
 
   el<HTMLButtonElement>('btnImport').addEventListener('click', () => {
     openJsonModal('', 'Import JSON');

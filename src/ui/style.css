@@ -1,3 +1,9 @@
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
 :root {
     /* CAD / industrial theme tokens */
     --bg: #070a0f;
@@ -292,6 +298,13 @@ body {
     min-width: 0;
 }
 
+.grid2 + .field,
+.grid3 + .field,
+.section > .field + .field,
+.sub > .field + .field {
+    margin-top: 10px;
+}
+
 .field label {
     display: block;
     font-size: 12px;
@@ -373,7 +386,7 @@ body {
 }
 
 .sub.open {
-    max-height: 220px;
+    max-height: 420px;
     opacity: 1;
     transform: translateY(0);
     margin-top: 8px;
@@ -682,4 +695,51 @@ body {
     outline: none;
     resize: vertical;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Narrow screens: stack the three columns instead of squeezing them. */
+@media (max-width: 960px) {
+    #app {
+        height: auto;
+        min-height: 100vh;
+    }
+
+    html,
+    body {
+        height: auto;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    header {
+        flex-wrap: wrap;
+    }
+
+    .layout {
+        flex: none;
+        flex-direction: column;
+    }
+
+    .panel {
+        width: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .panel#rightPanel {
+        border-left: none;
+        border-bottom: none;
+    }
+
+    .panel-body {
+        overflow-y: visible;
+    }
+
+    .viewport {
+        min-height: 420px;
+    }
+
+    .viewport-toolbar {
+        flex-wrap: wrap;
+    }
 }
