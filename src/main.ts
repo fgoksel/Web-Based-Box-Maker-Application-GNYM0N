@@ -343,6 +343,7 @@ function readSheetFromUI(): SheetConfig {
 
   const size = el<HTMLSelectElement>('shSz').value;
   config.size = size as SheetConfig['size'];
+  config.algorithm = el<HTMLSelectElement>('shAlg').value as SheetConfig['algorithm'];
 
   if (config.size === 'custom') {
     config.width = Number(el<HTMLInputElement>('shW').value);
@@ -724,6 +725,7 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
   el<HTMLInputElement>('dRowD').value = p.divider.rowDepths.join(', ');
 
   el<HTMLSelectElement>('shSz').value = sheet.size;
+  el<HTMLSelectElement>('shAlg').value = sheet.algorithm ?? 'guillotine';
   el<HTMLInputElement>('shGap').value = String(sheet.gap);
   el<HTMLInputElement>('shW').value = String(sheet.width);
   el<HTMLInputElement>('shH').value = String(sheet.height);
@@ -849,7 +851,7 @@ function initUI(): void {
     'tabStyle', 'tabN', 'tabW', 'lidH', 'lidTol', 'dCols', 'dRows', 'dH', 'dColW', 'dRowD',
     'lblText', 'lblFace', 'lblSize',
   ];
-  const sheetInputs = ['shSz', 'shGap', 'shW', 'shH'];
+  const sheetInputs = ['shSz', 'shAlg', 'shGap', 'shW', 'shH'];
   for (const [ids, kind] of [[modelInputs, 'model'], [sheetInputs, 'sheet']] as const) {
     for (const id of ids) {
       const node = el<HTMLElement>(id);

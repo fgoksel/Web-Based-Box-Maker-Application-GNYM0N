@@ -54,6 +54,7 @@ export function defaultSheetConfig(): SheetConfig {
     width:  420,
     height: 297,
     gap:    2,
+    algorithm: 'maxrects',
   };
 }
 
@@ -81,6 +82,7 @@ const MAX_JSON_CHARS = 1_000_000;
 const TAB_STYLES = ['finger', 'none'] as const;
 const LABEL_FACES = ['front', 'back', 'left', 'right', 'top', 'bottom'] as const;
 const SHEET_SIZES = ['A4', 'A3', 'A2', 'A1', 'custom'] as const;
+const PACKING_ALGORITHMS = ['guillotine', 'maxrects', 'skyline'] as const;
 
 function isObject(v: unknown): v is Obj {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -323,8 +325,10 @@ function readSheet(r: Reader, src: unknown): SheetConfig {
     r.errors.push(`sheet must be an object (got ${describe(src)})`);
     return d;
   }
-  r.unknownKeys(src, 'sheet', ['size', 'width', 'height', 'gap']);
+  r.unknownKeys(src, 'sheet', ['size', 'width', 'height', 'gap', 'algorithm']);
   return {
+    // Files saved before there was a choice were packed with guillotine, so they keep it.
+    algorithm: src.algorithm === undefined ? 'guillotine' : r.oneOf(src, 'algorithm', 'sheet', PACKING_ALGORITHMS, d.algorithm ?? 'maxrects'),
     size: r.oneOf(src, 'size', 'sheet', SHEET_SIZES, d.size),
     width: r.number(src, 'width', 'sheet', d.width, { above: 0, max: 100000 }),
     height: r.number(src, 'height', 'sheet', d.height, { above: 0, max: 100000 }),

@@ -60,5 +60,38 @@ describe('BinPacker', () => {
     expect(grouped.length).toBeGreaterThanOrEqual(2);
     expect(grouped.every(g => g.layout.config.width > 0 && g.layout.config.height > 0)).toBe(true);
   });
-});
 
+  it('uses the packing method named in the sheet settings', () => {
+    const params = defaultBoxParams();
+    params.divider.enabled = true;
+    params.divider.columns = 3;
+    params.divider.rows = 3;
+    const geo = buildBoxGeometry(params);
+
+    const layouts = (['guillotine', 'maxrects', 'skyline'] as const).map(algorithm => {
+      const layout = packPanels(geo.panels, { ...defaultSheetConfig(), algorithm });
+      expect(layout.config.algorithm).toBe(algorithm);
+      expect(layout.placed.some(p => p.overflow)).toBe(false);
+      return layout.placed.map(p => `${p.panel.name}@${p.x.toFixed(1)},${p.y.toFixed(1)}${p.rotated ? 'R' : ''}`).join(' ');
+    });
+    // The methods really are different: they do not all produce the same arrangement.
+    expect(new Set(layouts).size).toBeGreaterThan(1);
+  });
+
+  it('packs with guillotine when the settings name no method (older files)', () => {
+    const geo = buildBoxGeometry(defaultBoxParams());
+    const { algorithm: _ignored, ...withoutMethod } = defaultSheetConfig();
+    const a = packPanels(geo.panels, withoutMethod);
+    const b = packPanels(geo.panels, { ...withoutMethod, algorithm: 'guillotine' });
+    expect(a.placed.map(p => [p.x, p.y, p.rotated])).toEqual(b.placed.map(p => [p.x, p.y, p.rotated]));
+  });
+
+  it('passes the method on when grouping by thickness', () => {
+    const params = defaultBoxParams();
+    params.material.baseThickness = 6;
+    const geo = buildBoxGeometry(params);
+    const groups = packPanelsByThickness(geo.panels, { ...defaultSheetConfig(), algorithm: 'skyline' });
+    expect(groups.length).toBeGreaterThan(1);
+    for (const g of groups) expect(g.layout.config.algorithm).toBe('skyline');
+  });
+});

@@ -247,6 +247,14 @@
                                 <input type="number" id="shGap" value="2" min="0" max="20" step="0.5" autocomplete="off" />
                             </div>
                         </div>
+                        <div class="field" style="margin-top:10px">
+                            <label>Packing Method</label>
+                            <select id="shAlg" title="How the parts are arranged on the sheet">
+                                <option value="maxrects">MaxRects (best fit)</option>
+                                <option value="skyline">Skyline (fastest)</option>
+                                <option value="guillotine">Guillotine</option>
+                            </select>
+                        </div>
                         <div class="sub" id="customSheetSub">
                             <div class="grid2">
                                 <div class="field">
