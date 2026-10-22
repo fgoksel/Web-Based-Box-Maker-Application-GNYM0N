@@ -1,4 +1,5 @@
 import type { Panel, PlacedPanel, SheetConfig, SheetLayout } from '../models/types';
+import { PACKERS } from './packers';
 
 export const SHEET_SIZES: Record<string, [number, number]> = {
   A4: [297, 210],
@@ -15,108 +16,34 @@ export function resolveSheetDimensions(config: SheetConfig): { w: number; h: num
   return { w, h };
 }
 
-interface FreeRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-function fitScore(pw: number, ph: number, fr: FreeRect): number {
-  if (pw > fr.w || ph > fr.h) return Infinity;
-  // Prefer tight fits that leave minimal wasted area, but still
-  // slightly bias toward a smaller leftover short-side for stability.
-  const rw = fr.w - pw;
-  const rh = fr.h - ph;
-  const wasteArea = rw * rh;
-  const shortSide = Math.min(rw, rh);
-  return wasteArea + shortSide * 0.001;
-}
-
-function guillotineSplit(fr: FreeRect, pw: number, ph: number, gap: number): FreeRect[] {
-  const result: FreeRect[] = [];
-  const rightW  = fr.w - pw - gap;
-  const bottomH = fr.h - ph - gap;
-
-  if (fr.w - pw > fr.h - ph) {
-    if (rightW  > 0) result.push({ x: fr.x + pw + gap, y: fr.y, w: rightW, h: fr.h });
-    if (bottomH > 0) result.push({ x: fr.x, y: fr.y + ph + gap, w: pw, h: bottomH });
-  } else {
-    if (bottomH > 0) result.push({ x: fr.x, y: fr.y + ph + gap, w: fr.w, h: bottomH });
-    if (rightW  > 0) result.push({ x: fr.x + pw + gap, y: fr.y, w: rightW, h: ph });
-  }
-
-  return result;
-}
-
-function pruneSubsumed(freeRects: FreeRect[]): FreeRect[] {
-  return freeRects.filter(a =>
-    !freeRects.some(b =>
-      b !== a &&
-      b.x <= a.x &&
-      b.y <= a.y &&
-      b.x + b.w >= a.x + a.w &&
-      b.y + b.h >= a.y + a.h,
-    ),
-  );
-}
-
+/**
+ * Packs the panels onto one sheet with the method chosen in `config.algorithm`
+ * (guillotine when none is given). Panels are placed largest first. Each part takes up its own
+ * size plus the gap, so neighbours and the sheet edge are always at least `gap` apart.
+ * A panel that does not fit is marked `overflow`.
+ */
 export function packPanels(panels: Panel[], config: SheetConfig): SheetLayout {
   const { w: shW, h: shH } = resolveSheetDimensions(config);
   const gap = config.gap;
+  const algorithm = config.algorithm ?? 'guillotine';
 
   const sorted = [...panels].sort(
     (a, b) => b.panelWidth * b.panelHeight - a.panelWidth * a.panelHeight,
   );
 
-  let freeRects: FreeRect[] = [
-    { x: gap, y: gap, w: shW - gap * 2, h: shH - gap * 2 },
-  ];
+  const spots = PACKERS[algorithm](
+    sorted.map(p => ({ w: p.panelWidth + gap, h: p.panelHeight + gap })),
+    shW - gap,
+    shH - gap,
+  );
 
-  const placed: PlacedPanel[] = [];
   let usedArea = 0;
-
-  for (const panel of sorted) {
-    const pw = panel.panelWidth;
-    const ph = panel.panelHeight;
-
-    let bestScore   = Infinity;
-    let bestFrIdx   = -1;
-    let bestRotated = false;
-
-    for (let i = 0; i < freeRects.length; i++) {
-      const fr = freeRects[i];
-      const s0 = fitScore(pw + gap, ph + gap, fr);
-      if (s0 < bestScore) {
-        bestScore   = s0;
-        bestFrIdx   = i;
-        bestRotated = false;
-      }
-      if (pw !== ph) {
-        const s1 = fitScore(ph + gap, pw + gap, fr);
-        if (s1 < bestScore) {
-          bestScore   = s1;
-          bestFrIdx   = i;
-          bestRotated = true;
-        }
-      }
-    }
-
-    if (bestFrIdx >= 0) {
-      const fr  = freeRects[bestFrIdx];
-      const aPw = bestRotated ? ph : pw;
-      const aPh = bestRotated ? pw : ph;
-
-      placed.push({ panel, x: fr.x, y: fr.y, rotated: bestRotated, overflow: false });
-      usedArea += pw * ph;
-
-      freeRects.splice(bestFrIdx, 1);
-      freeRects.push(...guillotineSplit(fr, aPw, aPh, gap));
-      freeRects = pruneSubsumed(freeRects);
-    } else {
-      placed.push({ panel, x: 0, y: 0, rotated: false, overflow: true });
-    }
-  }
+  const placed: PlacedPanel[] = sorted.map((panel, i) => {
+    const spot = spots[i];
+    if (!spot) return { panel, x: 0, y: 0, rotated: false, overflow: true };
+    usedArea += panel.panelWidth * panel.panelHeight;
+    return { panel, x: spot.x + gap, y: spot.y + gap, rotated: spot.rotated, overflow: false };
+  });
 
   const efficiency = Math.min(1, usedArea / (shW * shH));
 

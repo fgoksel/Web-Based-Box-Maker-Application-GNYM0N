@@ -33,7 +33,7 @@ Everything runs in the browser. There is no server, no database and no account.
 | Dividers | A grid of column and row dividers, optionally lower than the walls. The compartments are either equal or have exact sizes that you type in, and the box can be sized to fit them. Dividers cross-halve (interlock) at every crossing. |
 | Lid | Optional lid built the same way as the tray, with a clearance tolerance. |
 | 3D preview | Rotatable, zoomable model with numbered parts. Wireframe, explode and reset-camera controls. Clicking a part in the list highlights it. |
-| Sheet layout | Panels are packed onto A4, A3, A2, A1 or a custom sheet size, with a configurable gap. Overflowing panels are reported. Panels can optionally be grouped by material thickness. |
+| Sheet layout | Panels are packed onto A4, A3, A2, A1 or a custom sheet size, with a configurable gap, using one of three packing methods (MaxRects, Skyline, Guillotine). Overflowing panels are reported. Panels can optionally be grouped by material thickness. |
 | Engraved label | A line of text on any face (front, back, left, right, bottom or the lid top), shown on the 3D model and written to the SVG as a separate engrave layer. |
 | SVG export | Cut paths with part numbers, redundant points removed, kerf compensation applied. |
 | Save and load | The whole design is saved to and loaded from a JSON file. |
@@ -50,6 +50,7 @@ You need **Node.js 20 or newer**.
 npm install      # install dependencies (once)
 npm run dev      # start the app, then open the printed address (http://localhost:5173)
 npm test         # run the automated tests
+npm run benchmark  # compare the packing methods on 300 random boxes
 npm run build    # type-check and build a static version into dist/
 ```
 
@@ -62,7 +63,7 @@ The build output in `dist/` is a plain static website that can be hosted anywher
 1. **Enter the parameters** in the left panel: box dimensions, material thicknesses, kerf, joint style, and the optional lid and dividers.
 2. **Generate** builds the panels and shows the 3D model.
 3. Use **Wireframe**, **Explode** and **Reset Camera** to inspect the model. Click a part in the list on the right to highlight it.
-4. Choose a **sheet size** (or *Custom size* with its own width and height) and a gap in the right panel, then run **Bin Packing**. Switch to **Sheet Layout** to see the arrangement and the sheet efficiency.
+4. Choose a **sheet size** (or *Custom size* with its own width and height) and a gap in the right panel, pick a **packing method**, then run **Bin Packing**. Switch to **Sheet Layout** to see the arrangement and the sheet efficiency.
 5. Turn on **Separate by Thickness** if you cut different thicknesses from different sheets.
 6. **Export SVG** to get the cut file.
 7. **Export JSON** saves the design. **Import JSON** loads one back.
@@ -90,9 +91,12 @@ src/
     GeometryEngine.ts       Builds all panels and their joint plans
     JointEngine.ts          Turns joint plans into cut outlines
     outline.ts              Polygon helpers: clean-up, offset, bounds
+    compartments.ts         Divider layout: equal or exact compartment sizes
+    label.ts                Engraved label: which panel, fit checks
   rendering/BoxRenderer.ts  Three.js 3D preview
   svg/
     BinPacker.ts            Sheet packing and the 2D preview
+    packers.ts              The three packing methods (MaxRects, Skyline, Guillotine)
     SvgEngine.ts            SVG generation and download
   utils/ProjectIO.ts        Default values, JSON export and import
   ui/style.css              Styling
@@ -176,19 +180,33 @@ Other joints, such as dovetails, are deliberately not offered. A laser cuts stra
 
 A laser removes about `kerf / 2` of material on each side of the cut line. At export, every cut path is therefore pushed outward by `kerf / 2`: tabs get slightly wider and slots slightly narrower, so that after cutting a tab fits its slot. The **fit clearance** setting then moves every edge in a little, so that a slot ends up exactly that much wider than the tab that goes into it. `0` is an exact fit (a tight press fit on most materials), and `0.1` to `0.2` mm makes the joints easier to assemble. The 3D preview shows the nominal geometry.
 
-### 4. Sheet packing (`BinPacker`)
+### 4. Sheet packing (`BinPacker`, `packers.ts`)
 
-Panels are packed as rectangles (their outline bounding boxes) with optional 90° rotation, using a free-rectangle method:
+Panels are packed as rectangles (their outline bounding boxes), largest first, each allowed a 90° turn. Every part takes up its own size plus the gap, so neighbours and the sheet edge are always at least one gap apart. Three methods are available (the *Packing Method* setting):
 
-1. Sort panels by area, largest first.
-2. Keep a list of free rectangles, starting with the whole sheet minus the gap.
-3. For each panel, score every free rectangle in both orientations. A tight fit that leaves little wasted area scores best, with a small preference for a smaller leftover short side.
-4. Place the panel in the best rectangle and split the rest with a guillotine split (along the width first or the height first, whichever leaves the larger remainder).
-5. Remove free rectangles that are fully contained in another one.
+| Method | Idea |
+|---|---|
+| **MaxRects** (default) | Keeps every maximal free rectangle, so free areas may overlap. A part goes where the smaller leftover side is smallest (best short side fit). After a part is placed, every free rectangle it touches is cut around it and rectangles contained in others are dropped. |
+| **Skyline** | Remembers only the top edge of what has been placed. A part goes to the lowest position where it rests, leftmost on a tie. Very fast and good at filling rows. |
+| **Guillotine** | Free rectangles that never overlap, split by a straight cut (along the width first or the height first, whichever leaves the larger remainder). The original method of the application. |
 
-Because panels are only ever placed inside free rectangles, they cannot overlap. A panel that fits nowhere is marked `overflow` and is left out of the SVG, with a comment listing it. **Separate by Thickness** packs each thickness group onto its own sheet section.
+A part that fits nowhere is marked `overflow` and is left out of the SVG, with a comment listing it. **Separate by Thickness** packs each thickness group onto its own sheet section. Sheet efficiency is the used panel area divided by the sheet area.
 
-Sheet efficiency is the used panel area divided by the sheet area.
+#### How the methods compare
+
+`npm run benchmark` packs 300 random boxes (the same ones every run: widths 60 to 300 mm, depths 50 to 250 mm, heights 30 to 150 mm, 2 to 6 mm material, 40% with a lid, 50% with dividers) with each method and prints this table:
+
+| Method | Strip use | Best or tied | Fits A3 | Fits A2 | Smallest sheet (cm²) | Time per box |
+|---|---|---|---|---|---|---|
+| Guillotine | 73.5% | 96 | 46.7% | 89.7% | 2119 | 0.018 ms |
+| MaxRects | 71.1% | 99 | **50.3%** | **92.3%** | **2005** | 0.029 ms |
+| Skyline | **79.3%** | **257** | 47.7% | 90.0% | 2096 | **0.008 ms** |
+
+- *Strip use* packs onto a 420 mm wide sheet of unlimited length and divides the material area by the rectangle that was used; *Best or tied* counts the boxes for which no other method needed a shorter strip.
+- *Fits A3 / A2* is how often every panel fits on that sheet.
+- *Smallest sheet* is the smallest standard sheet (A4, A3, A2, A1) that holds every panel, averaged over all boxes.
+
+The methods win different measures. Skyline is best when the sheet length is open and is the fastest. MaxRects is best when the sheet is fixed, which is how the application is used: it fits more boxes on an A3 or A2 sheet and needs a smaller sheet on average (about 5% less area than Guillotine), so it is the default. The tests also check, for every method and every box, that all parts lie inside the sheet, that none overlap, and that the gap is kept.
 
 ### 5. Engraved text
 
@@ -213,7 +231,7 @@ Each placed outline is rotated if needed, kerf-compensated, and written as an SV
     "lid":     { "enabled": false, "height": 12, "tolerance": 0.2 },
     "label":   { "enabled": false, "text": "", "face": "front", "fontSize": 8 }
   },
-  "sheet": { "size": "A3", "width": 420, "height": 297, "gap": 2 }
+  "sheet": { "size": "A3", "width": 420, "height": 297, "gap": 2, "algorithm": "maxrects" }
 }
 ```
 
@@ -261,7 +279,8 @@ The tests cover:
 - **Joints:** tab sizing and minimum finger width, outlines without invalid numbers, normalisation, repeatable results, flat style, outline helpers, and the divider slot sizes.
 - **Assembly:** the generated panels are placed in 3D and the whole volume is sampled. Every point of nominal material must be covered by exactly one panel, with no overlap, no gap and no stray tab. This is checked for the default box, different frame and base thicknesses, the lid, divider grids and lower dividers.
 - **Project files:** valid files round-trip exactly, and unreadable input, wrong types, out-of-range values, boxes that cannot be built, unknown fields and a `__proto__` key are all handled.
-- **Layout:** overflow detection, no overlapping panels, grouping by thickness.
+- **Layout:** overflow detection, no overlapping panels, grouping by thickness, and the choice of packing method.
+- **Packing methods:** each of the three methods keeps every part inside the sheet, without overlaps and with the gap, on random parts and on 300 random boxes. `npm run benchmark` also prints the comparison table.
 - **SVG:** a valid document with paths, and the overflow comment.
 
 The assembly tests take around ten seconds because they sample the volume.
@@ -291,7 +310,7 @@ After the first version, the joints were reworked so that mating edges are compl
 
 - Dividers interlock with each other but are not fixed to the walls or the base plate, which would need slots in the middle of those panels.
 - Engraved text is one line, centred on its face. Several lines, images and free positioning are not supported.
-- Packing uses a single heuristic and is not guaranteed to be optimal. Comparing it with other packing methods is planned.
+- Packing uses heuristics and is not guaranteed to be optimal, and parts are packed as their bounding rectangles, so a part's notches are not filled with smaller parts.
 - Only rectangular boxes are supported.
 
 ---

@@ -235,6 +235,33 @@ describe('importProject: field checks', () => {
     expect(res.validation.warnings.some(w => w.includes('params.inset is not used'))).toBe(true);
   });
 
+  it('keeps the chosen packing method', () => {
+    for (const algorithm of ['guillotine', 'maxrects', 'skyline'] as const) {
+      const sheet = { ...defaultSheetConfig(), algorithm };
+      const res = importProject(exportProject(defaultBoxParams(), sheet));
+      expect(res.project?.sheet.algorithm).toBe(algorithm);
+    }
+  });
+
+  it('gives a file from before the packing choice the old method, so its layout does not change', () => {
+    const file = validFile();
+    delete file.sheet.algorithm;
+    const res = importObject(file);
+    expect(res.success).toBe(true);
+    expect(res.project?.sheet.algorithm).toBe('guillotine');
+    expect(res.validation.warnings).toEqual([]);
+  });
+
+  it('uses MaxRects for a new design', () => {
+    expect(defaultSheetConfig().algorithm).toBe('maxrects');
+  });
+
+  it('rejects an unknown packing method', () => {
+    const file = validFile();
+    file.sheet.algorithm = 'shelf';
+    expect(errorsOf(file)).toContain('sheet.algorithm must be one of guillotine, maxrects, skyline (got "shelf")');
+  });
+
   it('rejects an invalid sheet', () => {
     const file = validFile();
     file.sheet = { size: 'B7', width: -1, height: 297, gap: 2 };

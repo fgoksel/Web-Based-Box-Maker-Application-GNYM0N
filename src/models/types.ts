@@ -157,11 +157,15 @@ export interface BoxGeometry {
 
 export type StandardSheetSize = 'A4' | 'A3' | 'A2' | 'A1' | 'custom';
 
+export type PackingAlgorithm = 'guillotine' | 'maxrects' | 'skyline';
+
 export interface SheetConfig {
   size: StandardSheetSize;
   width: number;
   height: number;
   gap: number;
+  /** How panels are arranged on the sheet. Files without it use guillotine. */
+  algorithm?: PackingAlgorithm;
 }
 
 export interface PlacedPanel {
