@@ -9,12 +9,12 @@ import type {
   JointPlan,
   Notch,
 } from '../models/types';
+import { layoutCompartments } from './compartments';
 
 const PANEL_COLORS: Record<PanelGroup, number[]> = {
   tray:    [0xf0a500, 0xe09000, 0xd08000, 0xffb520, 0xffc840],
   lid:     [0x00c8ff, 0x00aadd, 0x0090cc, 0x20d0ff, 0x40e0ff],
   divider: [0x39ff6e, 0x20ee55, 0x10dd44, 0x50ff80, 0x60ff90],
-  inset:   [0xff6b9d, 0xff4488, 0xff2277, 0xff8ab0, 0xffaac0],
 };
 
 function colorFor(group: PanelGroup, index: number): number {
@@ -213,16 +213,12 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
     const dividerCenterY = tB + dH / 2;
 
     // Centre lines of every divider (world x for column dividers, world z for row dividers).
-    const colX: number[] = [];
-    if (cols > 1) {
-      const colSlotW = (iW - tD * (cols - 1)) / cols;
-      for (let c = 1; c < cols; c++) colX.push(-iW / 2 + c * (colSlotW + tD) - tD / 2);
-    }
-    const rowZ: number[] = [];
-    if (rows > 1) {
-      const rowSlotD = (iD - tD * (rows - 1)) / rows;
-      for (let r = 1; r < rows; r++) rowZ.push(-iD / 2 + r * (rowSlotD + tD) - tD / 2);
-    }
+    const colLayout = layoutCompartments(iW, tD, cols, params.divider.columnWidths, 'width');
+    const rowLayout = layoutCompartments(iD, tD, rows, params.divider.rowDepths, 'depth');
+    if (colLayout.error) throw new Error(colLayout.error);
+    if (rowLayout.error) throw new Error(rowLayout.error);
+    const colX = colLayout.dividerCenters.map(c => -iW / 2 + c);
+    const rowZ = rowLayout.dividerCenters.map(c => -iD / 2 + c);
 
     // Cross-halving: where a column and a row divider cross, the column divider is
     // slotted from the top and the row divider from the bottom, each half the height,
@@ -263,21 +259,6 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
         { x: 0, y: 0, z: 0 },
         colX.length + i,
         rowPlan,
-      ));
-    });
-  }
-
-  if (params.inset.enabled) {
-    params.inset.compartments.forEach((comp, ci) => {
-      panels.push(makePanel(
-        `Inset ${ci + 1} H-div`,
-        comp.width, comp.height, tD, 'inset',
-        { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, ci * 2,
-      ));
-      panels.push(makePanel(
-        `Inset ${ci + 1} V-div`,
-        comp.depth, comp.height, tD, 'inset',
-        { x: 0, y: 0, z: 0 }, { x: 0, y: Math.PI / 2, z: 0 }, ci * 2 + 1,
       ));
     });
   }

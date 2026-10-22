@@ -445,6 +445,14 @@ body {
     border: 1px solid rgba(255, 71, 87, 0.3);
 }
 
+#divInfo {
+    margin-top: 8px;
+    white-space: pre-line;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--muted);
+}
+
 #validMsg {
     margin-top: 10px;
     white-space: pre-wrap;
@@ -579,10 +587,6 @@ body {
 
 .dot.divider {
     background: var(--good);
-}
-
-.dot.inset {
-    background: #ff6b9d;
 }
 
 

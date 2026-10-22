@@ -40,16 +40,28 @@ describe('importProject: valid files', () => {
     expect(() => buildBoxGeometry(res.project!.params)).not.toThrow();
   });
 
-  it('accepts inset compartments with and without a label', () => {
+  it('accepts exact compartment sizes for the dividers', () => {
     const file = validFile();
-    file.params.inset = {
-      enabled: true,
-      compartments: [{ width: 20, depth: 30, height: 15, label: 'coins' }, { width: 10, depth: 10, height: 10 }],
+    file.params.divider = {
+      enabled: true, columns: 2, rows: 2, heightOverride: 0,
+      columnWidths: [40, 30, 38], rowDepths: [30, 50],
     };
+    file.params.width = 40 + 30 + 38 + 2 * 3 + 2 * 3;
+    file.params.depth = 30 + 50 + 3 + 2 * 3;
+    const res = importObject(file);
+    expect(res.validation.errors).toEqual([]);
+    expect(res.project?.params.divider.columnWidths).toEqual([40, 30, 38]);
+    expect(res.project?.params.divider.rowDepths).toEqual([30, 50]);
+  });
+
+  it('treats a file from before compartment sizes existed as equal compartments', () => {
+    const file = validFile();
+    delete file.params.divider.columnWidths;
+    delete file.params.divider.rowDepths;
     const res = importObject(file);
     expect(res.success).toBe(true);
-    expect(res.project?.params.inset.compartments).toHaveLength(2);
-    expect(res.project?.params.inset.compartments[0].label).toBe('coins');
+    expect(res.project?.params.divider.columnWidths).toEqual([]);
+    expect(res.project?.params.divider.rowDepths).toEqual([]);
   });
 
   it('uses the default sheet, with a note, when the sheet is missing', () => {
@@ -64,12 +76,12 @@ describe('importProject: valid files', () => {
   it('uses defaults, with a note, for an optional section that is missing', () => {
     const file = validFile();
     delete file.params.label;
-    delete file.params.inset;
+    delete file.params.lid;
     const res = importObject(file);
     expect(res.success).toBe(true);
     expect(res.project?.params.label).toEqual(defaultBoxParams().label);
     expect(res.validation.warnings.some(w => w.includes('params.label'))).toBe(true);
-    expect(res.validation.warnings.some(w => w.includes('params.inset'))).toBe(true);
+    expect(res.validation.warnings.some(w => w.includes('params.lid'))).toBe(true);
   });
 });
 
@@ -169,13 +181,23 @@ describe('importProject: field checks', () => {
     expect(errorsOf(file)).toContain('params.divider must be an object (got an array)');
   });
 
-  it('checks every inset compartment', () => {
+  it('checks every compartment size', () => {
     const file = validFile();
-    file.params.inset = { enabled: true, compartments: [{ width: 10, depth: -1, height: 5 }, 'x', { width: 1, depth: 1 }] };
+    file.params.divider.columnWidths = [10, -1, 'x', null];
+    file.params.divider.rowDepths = 'wide';
     const errors = errorsOf(file);
-    expect(errors.some(e => e.startsWith('params.inset.compartments[0].depth'))).toBe(true);
-    expect(errors.some(e => e.startsWith('params.inset.compartments[1] must be an object'))).toBe(true);
-    expect(errors.some(e => e.startsWith('params.inset.compartments[2].height is missing'))).toBe(true);
+    expect(errors.some(e => e.startsWith('params.divider.columnWidths[1] must be greater than 0'))).toBe(true);
+    expect(errors.some(e => e.startsWith('params.divider.columnWidths[2] must be a number'))).toBe(true);
+    expect(errors.some(e => e.startsWith('params.divider.columnWidths[3] must be a number'))).toBe(true);
+    expect(errors.some(e => e.startsWith('params.divider.rowDepths must be a list of numbers'))).toBe(true);
+  });
+
+  it('ignores the old inset section with a note', () => {
+    const file = validFile();
+    file.params.inset = { enabled: true, compartments: [] };
+    const res = importObject(file);
+    expect(res.success).toBe(true);
+    expect(res.validation.warnings.some(w => w.includes('params.inset is not used'))).toBe(true);
   });
 
   it('rejects an invalid sheet', () => {
@@ -219,7 +241,7 @@ describe('importProject: boxes that cannot be built', () => {
   it('rejects dividers that do not fit or are too tall', () => {
     const file = validFile();
     file.params.divider = { enabled: true, columns: 50, rows: 1, heightOverride: 0 };
-    expect(errorsOf(file).join(' ')).toContain('params.divider.columns do not fit');
+    expect(errorsOf(file).join(' ')).toContain('compartments do not fit the inside width');
 
     const tall = validFile();
     tall.params.divider = { enabled: true, columns: 2, rows: 2, heightOverride: 500 };

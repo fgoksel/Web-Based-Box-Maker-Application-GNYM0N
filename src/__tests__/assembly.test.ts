@@ -158,4 +158,13 @@ describe('Assembly of jointed panels', () => {
     const wall = solids.find(s => s.panel.name === 'Front Wall')!.panel;
     expect(wall.outline).toHaveLength(4);
   });
+
+  it('also holds for dividers placed from exact compartment sizes', () => {
+    const params = defaultBoxParams();
+    params.divider.enabled = true;
+    params.divider.columnWidths = [40, 30, 38];
+    params.divider.rowDepths = [20, 25, 33];
+    const result = countMismatches(assemble(params));
+    expect(result).toEqual({ overlap: 0, gap: 0, stray: 0 });
+  });
 });
