@@ -125,6 +125,7 @@ function readBoxParamsFromUI(): BoxParams {
   params.material.baseThickness = num('tB');
   params.material.dividerThickness = num('tD');
   params.material.kerf = Number(el<HTMLInputElement>('kerf').value);
+  params.material.fitClearance = Number(el<HTMLInputElement>('fitC').value);
 
   params.joint.style = (el<HTMLSelectElement>('tabStyle').value as BoxParams['joint']['style']);
   params.joint.minTabCount = num('tabN');
@@ -172,6 +173,10 @@ function validateParams(params: BoxParams): UIValidationResult {
   const kerfOk = Number.isFinite(params.material.kerf) && params.material.kerf >= 0;
   markFieldValid('kerf', kerfOk);
   if (!kerfOk) errors.push('Kerf must be 0 or greater');
+
+  const fitOk = Number.isFinite(params.material.fitClearance) && params.material.fitClearance >= 0 && params.material.fitClearance <= 1;
+  markFieldValid('fitC', fitOk);
+  if (!fitOk) errors.push('Fit clearance must be between 0 and 1 mm');
 
   const tabOk = Number.isInteger(params.joint.minTabCount) && params.joint.minTabCount >= 1;
   markFieldValid('tabN', tabOk);
@@ -688,6 +693,7 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
   el<HTMLInputElement>('tB').value = String(p.material.baseThickness);
   el<HTMLInputElement>('tD').value = String(p.material.dividerThickness);
   el<HTMLInputElement>('kerf').value = String(p.material.kerf);
+  el<HTMLInputElement>('fitC').value = String(p.material.fitClearance);
 
   el<HTMLSelectElement>('tabStyle').value = p.joint.style;
   el<HTMLInputElement>('tabN').value = String(p.joint.minTabCount);
@@ -817,7 +823,7 @@ function initUI(): void {
   el<HTMLButtonElement>('btnExport').addEventListener('click', () => doExportProjectJSON());
 
   const modelInputs = [
-    'bW', 'bD', 'bH', 'tF', 'tB', 'tD', 'kerf',
+    'bW', 'bD', 'bH', 'tF', 'tB', 'tD', 'kerf', 'fitC',
     'tabStyle', 'tabN', 'tabW', 'lidH', 'lidTol', 'dCols', 'dRows', 'dH', 'dColW', 'dRowD',
   ];
   const sheetInputs = ['shSz', 'shGap', 'shW', 'shH'];

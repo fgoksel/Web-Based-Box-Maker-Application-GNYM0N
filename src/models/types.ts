@@ -26,9 +26,16 @@ export interface MaterialConfig {
   baseThickness: number;
   dividerThickness: number;
   kerf: number;
+  /** Extra play between a tab and its slot, in mm. 0 is an exact fit; larger is looser. */
+  fitClearance: number;
 }
 
-export type TabStyle = 'finger' | 'box' | 'dovetail' | 'none';
+/**
+ * `finger` cuts interlocking fingers; `none` leaves plain edges. Other joints such as dovetails
+ * are not offered: their flare runs through the thickness of the board, which a laser cutter,
+ * cutting straight through the sheet, cannot produce.
+ */
+export type TabStyle = 'finger' | 'none';
 
 export interface JointConfig {
   style: TabStyle;

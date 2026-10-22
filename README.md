@@ -28,7 +28,7 @@ Everything runs in the browser. There is no server, no database and no account.
 
 | Area | What it does |
 |---|---|
-| Parametric box | Width, depth and height, with separate frame, base and divider thicknesses and a kerf value. |
+| Parametric box | Width, depth and height, with separate frame, base and divider thicknesses, a kerf value and a fit clearance. |
 | Finger joints | Walls, base and lid are cut with tabs and matching slots that fit together. Finger width adapts to the edge length and material thickness. |
 | Dividers | A grid of column and row dividers, optionally lower than the walls. The compartments are either equal or have exact sizes that you type in, and the box can be sized to fit them. Dividers cross-halve (interlock) at every crossing. |
 | Lid | Optional lid built the same way as the tray, with a clearance tolerance. |
@@ -165,11 +165,13 @@ Each panel carries a **joint plan**: for each of its four edges, whether it gets
 
 **Outline building.** The outline is walked counter-clockwise around the panel, adding the tab or slot points for each edge. Duplicate points, zero-width spikes and collinear points are then removed. Finally the outline is moved so its bounding box starts at `(0, 0)`, and the original rectangle is remembered as the panel's `body` so the 3D mesh is centred correctly.
 
-**Joint styles.** `finger` and `box` produce finger joints. `none` (shown as *Flat*) leaves plain rectangles, but divider cross slots are kept because the dividers could not fit together without them.
+**Joint styles.** `finger` produces finger joints. `none` (shown as *Flat*) leaves plain rectangles, but divider cross slots are kept because the dividers could not fit together without them.
 
-### 3. Kerf compensation (`SvgEngine`)
+Other joints, such as dovetails, are deliberately not offered. A laser cuts straight through the sheet, so a joint can only be shaped in the plane of the panel. A dovetail on a box corner flares through the thickness of the board, which a 2D cut cannot produce, so the parts would look right on screen and not fit together. Older project files that say `box` (another name for finger joints) are read as `finger` with a note.
 
-A laser removes about `kerf / 2` of material on each side of the cut line. At export, every cut path is therefore pushed outward by `kerf / 2`: tabs get slightly wider and slots slightly narrower, so that after cutting a tab fits its slot. The 3D preview shows the nominal geometry.
+### 3. Kerf compensation and fit clearance (`SvgEngine`)
+
+A laser removes about `kerf / 2` of material on each side of the cut line. At export, every cut path is therefore pushed outward by `kerf / 2`: tabs get slightly wider and slots slightly narrower, so that after cutting a tab fits its slot. The **fit clearance** setting then moves every edge in a little, so that a slot ends up exactly that much wider than the tab that goes into it. `0` is an exact fit (a tight press fit on most materials), and `0.1` to `0.2` mm makes the joints easier to assemble. The 3D preview shows the nominal geometry.
 
 ### 4. Sheet packing (`BinPacker`)
 
@@ -198,7 +200,7 @@ Each placed outline is rotated if needed, kerf-compensated, and written as an SV
   "meta": { "app": "Web-Based Box Maker", "version": "1.0.0", "author": "...", "created": "...", "modified": "..." },
   "params": {
     "width": 120, "depth": 90, "height": 55,
-    "material": { "frameThickness": 3, "baseThickness": 3, "dividerThickness": 3, "kerf": 0.1 },
+    "material": { "frameThickness": 3, "baseThickness": 3, "dividerThickness": 3, "kerf": 0.1, "fitClearance": 0 },
     "joint":   { "style": "finger", "minTabCount": 3, "tabWidthOverride": 0 },
     "divider": { "enabled": false, "columns": 2, "rows": 2, "columnWidths": [], "rowDepths": [], "heightOverride": 0 },
     "lid":     { "enabled": false, "height": 12, "tolerance": 0.2 },
@@ -219,7 +221,7 @@ When a file is imported, every field is checked (see [Validation](#validation)).
 The controller rejects a design before generating when:
 
 - width, depth, height or any thickness is not greater than zero
-- kerf is negative
+- kerf is negative, or the fit clearance is outside 0 to 1 mm
 - the tab count, divider columns or divider rows are not whole numbers of at least 1
 - the walls would leave no interior (width or depth `≤ 2·tF`, or height `≤ tB`)
 - the lid is not taller than the base thickness
@@ -280,7 +282,6 @@ After the first version, the joints were reworked so that mating edges are compl
 ## Known limitations and further work
 
 - Dividers interlock with each other but are not fixed to the walls or the base plate, which would need slots in the middle of those panels.
-- The `box` joint style currently behaves like `finger`.
 - The `label` setting exists in the data model but is not available in the interface yet.
 - Packing uses a single heuristic and is not guaranteed to be optimal. Comparing it with other packing methods is planned.
 - Only rectangular boxes are supported.

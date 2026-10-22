@@ -1,6 +1,18 @@
-import type { SheetLayout, BoxParams } from '../models/types';
+import type { SheetLayout, BoxParams, Point2D } from '../models/types';
 import type { GroupedSheetLayout } from './BinPacker';
 import { offsetOutline, translateOutline } from '../geometry/outline';
+
+/**
+ * The outline as it should be cut. The laser removes kerf/2 on each side of the path, so the path
+ * moves outward by that much (tabs grow, slots shrink). The fit clearance then moves every edge in
+ * by a quarter of the clearance: a tab gets narrower by half of it and a slot wider by half of it,
+ * so that a slot ends up exactly `fitClearance` wider than the tab that goes in it.
+ */
+export function cutOutline(outline: Point2D[], kerf: number, fitClearance: number): Point2D[] {
+  const d = kerf / 2 - fitClearance / 4;
+  if (d === 0) return outline;
+  return translateOutline(offsetOutline(outline, d), d, d);
+}
 
 function f(n: number): string {
   return (Math.round(n * 1000) / 1000).toFixed(3).replace(/\.?0+$/, '');
@@ -76,10 +88,7 @@ export function generateSVG(
         y: pt.x,
       }));
     }
-    // Kerf compensation: the laser removes kerf/2 on each side of the path, so push the
-    // path outward by that much (tabs grow, notches shrink) and keep the part inside its slot.
-    const half = params.material.kerf / 2;
-    if (half > 0) outline = translateOutline(offsetOutline(outline, half), half, half);
+    outline = cutOutline(outline, params.material.kerf, params.material.fitClearance);
     return {
       colorGroup: svgColor(idx),
       pathD: buildPathD(outline, pl.x, pl.y),
@@ -110,7 +119,7 @@ export function generateSVG(
     : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<!-- Web-Based Box Maker | Author: Ferhat Göksel | Sheet:${sw}x${sh}mm | Parts:${active.length}/${placed.length} | Efficiency:${(efficiency * 100).toFixed(1)}% | Kerf:${params.material.kerf}mm | ${new Date().toISOString()} -->
+<!-- Web-Based Box Maker | Author: Ferhat Göksel | Sheet:${sw}x${sh}mm | Parts:${active.length}/${placed.length} | Efficiency:${(efficiency * 100).toFixed(1)}% | Kerf:${params.material.kerf}mm | Fit clearance:${params.material.fitClearance}mm | ${new Date().toISOString()} -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${sw + 20} ${sh + 20}" width="${sw}mm" height="${sh}mm">
   <rect x="0" y="0" width="${f(sw)}" height="${f(sh)}" fill="#fafaf8" stroke="#cccccc" stroke-width="0.4"/>
 ${overflowComment}${paths}  <g id="labels">
