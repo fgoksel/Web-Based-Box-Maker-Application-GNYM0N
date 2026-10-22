@@ -34,6 +34,7 @@ Everything runs in the browser. There is no server, no database and no account.
 | Lid | Optional lid built the same way as the tray, with a clearance tolerance. |
 | 3D preview | Rotatable, zoomable model with numbered parts. Wireframe, explode and reset-camera controls. Clicking a part in the list highlights it. |
 | Sheet layout | Panels are packed onto A4, A3, A2, A1 or a custom sheet size, with a configurable gap. Overflowing panels are reported. Panels can optionally be grouped by material thickness. |
+| Engraved label | A line of text on any face (front, back, left, right, bottom or the lid top), shown on the 3D model and written to the SVG as a separate engrave layer. |
 | SVG export | Cut paths with part numbers, redundant points removed, kerf compensation applied. |
 | Save and load | The whole design is saved to and loaded from a JSON file. |
 | Live update | Once a box has been generated, changing a value rebuilds the model (and the sheet layout) automatically after a short pause. This can be switched off. |
@@ -65,6 +66,8 @@ The build output in `dist/` is a plain static website that can be hosted anywher
 5. Turn on **Separate by Thickness** if you cut different thicknesses from different sheets.
 6. **Export SVG** to get the cut file.
 7. **Export JSON** saves the design. **Import JSON** loads one back.
+
+**Engraved label.** Switch *Engrave Text* on, type the text, pick the face and the text height. The text is centred on that face and shown on the model. It is checked against the face: it must fit within 90% of the face width and height, and a label on the top needs the lid.
 
 **Compartment sizes.** With dividers on, leave *Column Widths* and *Row Depths* empty for equal compartments, or type exact sizes such as `40, 30, 50` (columns run left to right, rows back to front). The sizes plus the divider thicknesses must add up to the inside of the box. If they don't, the message says what inside size is needed, and **Fit box size to compartments** sets the box width and depth for you. A small summary under the fields lists the resulting compartment sizes.
 
@@ -187,7 +190,11 @@ Because panels are only ever placed inside free rectangles, they cannot overlap.
 
 Sheet efficiency is the used panel area divided by the sheet area.
 
-### 5. SVG export (`SvgEngine`)
+### 5. Engraved text
+
+The label is stored on the panel of the chosen face, together with which side of the panel is the outside. In the 3D view it is drawn on a thin plane just outside that face, turned so it reads from outside. In the SVG it goes into its own `<g id="engrave">` group, centred on the panel body (not the bounding box, so tabs do not shift it), turned with the panel when the packer rotates it, and moved by the same kerf compensation as the cut path. The part number moves to the bottom of the panel so the two do not overlap. Text is written as SVG `<text>`; some cutter software needs it converted to outlines before engraving. The engraving appears on whichever side of the sheet faces up when cutting, so lay the sheet with the outside face up.
+
+### 6. SVG export (`SvgEngine`)
 
 Each placed outline is rotated if needed, kerf-compensated, and written as an SVG path using `H` and `V` commands for straight segments. Collinear points are removed and paths are merged by colour, which keeps the file small. Each panel gets its sequence number and name as a label. The grouped export stacks the thickness groups in one document.
 
@@ -225,6 +232,7 @@ The controller rejects a design before generating when:
 - the tab count, divider columns or divider rows are not whole numbers of at least 1
 - the walls would leave no interior (width or depth `≤ 2·tF`, or height `≤ tB`)
 - the lid is not taller than the base thickness
+- an enabled label is empty, too large for its face, or on the top without a lid
 - the dividers do not fit (a compartment would have zero or negative size, or typed compartment sizes do not add up to the inside of the box) or are taller than the interior
 
 Invalid fields are highlighted and the reason is shown.
@@ -282,7 +290,7 @@ After the first version, the joints were reworked so that mating edges are compl
 ## Known limitations and further work
 
 - Dividers interlock with each other but are not fixed to the walls or the base plate, which would need slots in the middle of those panels.
-- The `label` setting exists in the data model but is not available in the interface yet.
+- Engraved text is one line, centred on its face. Several lines, images and free positioning are not supported.
 - Packing uses a single heuristic and is not guaranteed to be optimal. Comparing it with other packing methods is planned.
 - Only rectangular boxes are supported.
 

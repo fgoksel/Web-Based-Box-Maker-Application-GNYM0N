@@ -185,9 +185,12 @@ export class BoxRenderer {
       }),
     );
     sprite.scale.set(8, 8, 8);
+    // Keep the part number clear of engraved text, which sits in the middle of the body.
+    if (panel.engrave && panel.body) sprite.position.y = -panel.body.height / 2 + 6;
 
     group.add(mesh);
     group.add(sprite);
+    if (panel.engrave) group.add(this.buildLabelPlane(panel, panel.engrave));
 
     const es  = this._explode ? 1.6 : 1.0;
     const pos = panel.position3D;
@@ -196,6 +199,40 @@ export class BoxRenderer {
     group.rotation.set(rot.x, rot.y, rot.z);
 
     return group;
+  }
+
+  /** Engraved text as a thin plane just outside the panel's outer face, centred on the panel body. */
+  private buildLabelPlane(panel: Panel, engrave: NonNullable<Panel['engrave']>): THREE.Mesh {
+    const PX_PER_MM = 12;
+    const lineHeight = engrave.fontSize * 1.4;
+
+    const probe = document.createElement('canvas').getContext('2d')!;
+    const font = `${Math.round(engrave.fontSize * PX_PER_MM)}px Arial, Helvetica, sans-serif`;
+    probe.font = font;
+    const textWidth = Math.max(engrave.fontSize, probe.measureText(engrave.text).width / PX_PER_MM);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(2, Math.ceil(textWidth * PX_PER_MM) + 8);
+    canvas.height = Math.max(2, Math.ceil(lineHeight * PX_PER_MM));
+    const ctx = canvas.getContext('2d')!;
+    ctx.font = font;
+    ctx.fillStyle = '#fff1d0';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(engrave.text, canvas.width / 2, canvas.height / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(canvas.width / PX_PER_MM, canvas.height / PX_PER_MM),
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }),
+    );
+    plane.userData.isLabel = true;
+    // Looking at the outside of the panel the text must read left to right, so a plane on the
+    // -z side is turned half a round about the vertical axis.
+    plane.position.z = engrave.outward * (panel.thickness / 2 + 0.05);
+    if (engrave.outward < 0) plane.rotation.y = Math.PI;
+    return plane;
   }
 
   private clearMeshes(): void {
@@ -258,7 +295,7 @@ export class BoxRenderer {
     this.meshes.forEach((group) => {
       group.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
-        if (!mesh.isMesh) return;
+        if (!mesh.isMesh || mesh.userData.isLabel) return;
         const mat = mesh.material as THREE.MeshStandardMaterial;
         if (typeof mat.wireframe === 'boolean') mat.wireframe = val;
         mat.needsUpdate = true;

@@ -14,6 +14,15 @@ export function cutOutline(outline: Point2D[], kerf: number, fitClearance: numbe
   return translateOutline(offsetOutline(outline, d), d, d);
 }
 
+function xmlEscape(text: string): string {
+  return text
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function f(n: number): string {
   return (Math.round(n * 1000) / 1000).toFixed(3).replace(/\.?0+$/, '');
 }
@@ -97,16 +106,39 @@ export function generateSVG(
 
   const paths = consolidatePaths(pathResults);
 
+  // Engraved text goes in its own group so the cutter software can give it a separate (engrave) setting.
+  // It is placed like the cut path: moved by the same compensation and turned with a rotated panel.
+  const shift = params.material.kerf / 2 - params.material.fitClearance / 4;
+  const engraved = active
+    .filter(pl => pl.panel.engrave)
+    .map(pl => {
+      const { text, fontSize } = pl.panel.engrave!;
+      const body = pl.panel.body ?? { x: 0, y: 0, width: pl.panel.panelWidth, height: pl.panel.panelHeight };
+      const cx = body.x + body.width / 2;
+      const cy = body.y + body.height / 2;
+      const px = pl.rotated ? pl.panel.panelHeight - cy : cx;
+      const py = pl.rotated ? cx : cy;
+      const x = f(pl.x + px + shift);
+      const y = f(pl.y + py + shift);
+      const turn = pl.rotated ? ` transform="rotate(90 ${x} ${y})"` : '';
+      return `<text x="${x}" y="${y}" font-size="${f(fontSize)}" text-anchor="middle" dominant-baseline="central"${turn}>${xmlEscape(text)}</text>`;
+    });
+  const engraveGroup = engraved.length
+    ? `  <g id="engrave" fill="#1d4ed8" stroke="none" font-family="Arial, Helvetica, sans-serif">\n  ${engraved.join('\n  ')}\n  </g>\n`
+    : '';
+
   const labels = active.map((pl, idx) => {
     const pw  = pl.rotated ? pl.panel.panelHeight : pl.panel.panelWidth;
     const ph  = pl.rotated ? pl.panel.panelWidth  : pl.panel.panelHeight;
     const col = svgColor(idx);
+    // On a panel with engraved text the part number moves to the bottom so the two do not overlap.
+    const numberY = pl.panel.engrave ? Math.max(ph / 2, ph - 8) : ph / 2;
     const cx  = f(pl.x + pw / 2);
-    const cy  = f(pl.y + ph / 2);
+    const cy  = f(pl.y + numberY);
     let el = `<text x="${cx}" y="${cy}" dy=".35em" text-anchor="middle" font-size="3.5" font-weight="700" fill="${col}" font-family="monospace">${pl.panel.sequenceNumber}</text>`;
     if (pw > 18 && ph > 10) {
       const name = pl.panel.name.length > 15 ? pl.panel.name.slice(0, 14) + '…' : pl.panel.name;
-      el += `<text x="${cx}" y="${f(pl.y + ph / 2 + 5)}" dy=".35em" text-anchor="middle" font-size="2.2" fill="${col}" fill-opacity=".6" font-family="monospace">${name}</text>`;
+      el += `<text x="${cx}" y="${f(pl.y + numberY + 5)}" dy=".35em" text-anchor="middle" font-size="2.2" fill="${col}" fill-opacity=".6" font-family="monospace">${name}</text>`;
     }
     if (pl.rotated) {
       el += `<text x="${f(pl.x + 1.5)}" y="${f(pl.y + 3.5)}" font-size="2" fill="${col}" fill-opacity=".45" font-family="monospace">R</text>`;
@@ -122,7 +154,7 @@ export function generateSVG(
 <!-- Web-Based Box Maker | Author: Ferhat Göksel | Sheet:${sw}x${sh}mm | Parts:${active.length}/${placed.length} | Efficiency:${(efficiency * 100).toFixed(1)}% | Kerf:${params.material.kerf}mm | Fit clearance:${params.material.fitClearance}mm | ${new Date().toISOString()} -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${sw + 20} ${sh + 20}" width="${sw}mm" height="${sh}mm">
   <rect x="0" y="0" width="${f(sw)}" height="${f(sh)}" fill="#fafaf8" stroke="#cccccc" stroke-width="0.4"/>
-${overflowComment}${paths}  <g id="labels">
+${overflowComment}${paths}${engraveGroup}  <g id="labels">
   ${labels}
   </g>
   <g fill="none" stroke="#888888" stroke-width="0.3" font-size="2.8" font-family="monospace">

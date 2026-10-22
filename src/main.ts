@@ -1,6 +1,7 @@
 import { buildBoxGeometry } from './geometry/GeometryEngine';
 import { applyJointToPanel } from './geometry/JointEngine';
 import { layoutCompartments, parseSizeList } from './geometry/compartments';
+import { labelIssue } from './geometry/label';
 import { BoxRenderer } from './rendering/BoxRenderer';
 import type { BoxParams, BoxGeometry, Panel, SheetConfig, SheetLayout } from './models/types';
 import {
@@ -144,10 +145,10 @@ function readBoxParamsFromUI(): BoxParams {
   params.divider.columnWidths = parseSizeList(el<HTMLInputElement>('dColW').value);
   params.divider.rowDepths = parseSizeList(el<HTMLInputElement>('dRowD').value);
 
-  params.label.enabled = false;
-  params.label.text = '';
-  params.label.face = 'front';
-  params.label.fontSize = 8;
+  params.label.enabled = el<HTMLElement>('togLabel').classList.contains('on');
+  params.label.text = el<HTMLInputElement>('lblText').value;
+  params.label.face = el<HTMLSelectElement>('lblFace').value as BoxParams['label']['face'];
+  params.label.fontSize = Number(el<HTMLInputElement>('lblSize').value);
 
   return params;
 }
@@ -233,6 +234,12 @@ function validateParams(params: BoxParams): UIValidationResult {
     if (colLayout.error) errors.push(`Columns: ${colLayout.error}`);
     if (rowLayout.error) errors.push(`Rows: ${rowLayout.error}`);
   }
+
+  const issue = errors.length === 0 ? labelIssue(params) : null;
+  markFieldValid('lblText', issue?.field !== 'text');
+  markFieldValid('lblSize', issue?.field !== 'size');
+  markFieldValid('lblFace', issue?.field !== 'face');
+  if (issue) errors.push(issue.message);
 
   return { valid: errors.length === 0, params: errors.length ? null : params, errors };
 }
@@ -703,6 +710,12 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
   el<HTMLInputElement>('lidH').value = String(p.lid.height);
   el<HTMLInputElement>('lidTol').value = String(p.lid.tolerance);
 
+  toggleOn(el<HTMLElement>('togLabel'), p.label.enabled);
+  el<HTMLElement>('labelSub').classList.toggle('open', p.label.enabled);
+  el<HTMLInputElement>('lblText').value = p.label.text;
+  el<HTMLSelectElement>('lblFace').value = p.label.face;
+  el<HTMLInputElement>('lblSize').value = String(p.label.fontSize);
+
   toggleOn(el<HTMLElement>('togDiv'), p.divider.enabled);
   el<HTMLInputElement>('dCols').value = String(p.divider.columns);
   el<HTMLInputElement>('dRows').value = String(p.divider.rows);
@@ -745,6 +758,7 @@ function closeJsonModal(): void {
 function initUI(): void {
   el<HTMLElement>('lidSub').classList.remove('open');
   el<HTMLElement>('divSub').classList.remove('open');
+  el<HTMLElement>('labelSub').classList.remove('open');
 
   const lidToggle = el<HTMLElement>('togLid');
   const divToggle = el<HTMLElement>('togDiv');
@@ -765,6 +779,14 @@ function initUI(): void {
     const enabled = !divToggle.classList.contains('on');
     toggleOn(divToggle, enabled);
     el<HTMLElement>('divSub').classList.toggle('open', enabled);
+    refreshValidation();
+    scheduleLiveUpdate('model');
+  });
+
+  el<HTMLElement>('togLabelRow').addEventListener('click', () => {
+    const enabled = !el<HTMLElement>('togLabel').classList.contains('on');
+    toggleOn(el<HTMLElement>('togLabel'), enabled);
+    el<HTMLElement>('labelSub').classList.toggle('open', enabled);
     refreshValidation();
     scheduleLiveUpdate('model');
   });
@@ -825,6 +847,7 @@ function initUI(): void {
   const modelInputs = [
     'bW', 'bD', 'bH', 'tF', 'tB', 'tD', 'kerf', 'fitC',
     'tabStyle', 'tabN', 'tabW', 'lidH', 'lidTol', 'dCols', 'dRows', 'dH', 'dColW', 'dRowD',
+    'lblText', 'lblFace', 'lblSize',
   ];
   const sheetInputs = ['shSz', 'shGap', 'shW', 'shH'];
   for (const [ids, kind] of [[modelInputs, 'model'], [sheetInputs, 'sheet']] as const) {

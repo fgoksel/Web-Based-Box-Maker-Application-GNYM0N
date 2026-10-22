@@ -139,6 +139,8 @@ export interface Panel {
   jointPlan?: JointPlan;
   /** Nominal (joint-free) rectangle inside `outline` coordinates; used to centre the 3D mesh. */
   body?: Rect2D;
+  /** Text engraved on this panel, centred on its body. `outward` is the side of the outside face (local z). */
+  engrave?: { text: string; fontSize: number; outward: 1 | -1 };
   colorHex: number;
   position3D: Vec3;
   rotation3D: Vec3;
