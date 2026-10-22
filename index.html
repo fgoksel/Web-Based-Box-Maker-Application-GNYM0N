@@ -156,6 +156,37 @@
                     </div>
 
                     <div class="section">
+                        <div class="section-title">Engraved Label</div>
+                        <div class="toggle-row" id="togLabelRow">
+                            <span>Engrave Text</span>
+                            <div class="toggle" id="togLabel"></div>
+                        </div>
+                        <div class="sub" id="labelSub">
+                            <div class="field">
+                                <label>Text</label>
+                                <input type="text" id="lblText" maxlength="60" placeholder="e.g. TEA" autocomplete="off" spellcheck="false" />
+                            </div>
+                            <div class="grid2">
+                                <div class="field">
+                                    <label>Face</label>
+                                    <select id="lblFace">
+                                        <option value="front">Front</option>
+                                        <option value="back">Back</option>
+                                        <option value="left">Left</option>
+                                        <option value="right">Right</option>
+                                        <option value="bottom">Bottom</option>
+                                        <option value="top">Top (lid)</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label>Text Height (mm)</label>
+                                    <input type="number" id="lblSize" value="8" min="1" step="0.5" autocomplete="off" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
                         <div class="toggle-row" id="togLiveRow" title="Rebuild the model automatically when a value changes">
                             <span>Update automatically</span>
                             <div class="toggle on" id="togLive"></div>

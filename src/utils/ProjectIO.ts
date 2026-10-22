@@ -1,4 +1,5 @@
 import { layoutCompartments } from '../geometry/compartments';
+import { labelProblem } from '../geometry/label';
 import type {
   BoxMakerProject,
   BoxParams,
@@ -344,6 +345,9 @@ function checkBuildable(r: Reader, p: BoxParams): void {
   if (p.lid.enabled && p.lid.height <= tB) {
     r.errors.push('params.lid.height must be greater than the base thickness');
   }
+
+  const label = labelProblem(p);
+  if (label && iW > 0 && iD > 0 && iH > 0) r.errors.push(`params.label: ${label}`);
 
   if (p.divider.enabled && iW > 0 && iD > 0 && iH > 0) {
     const dH = p.divider.heightOverride > 0 ? p.divider.heightOverride : iH;

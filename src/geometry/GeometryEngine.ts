@@ -10,6 +10,7 @@ import type {
   Notch,
 } from '../models/types';
 import { layoutCompartments } from './compartments';
+import { LABEL_PANEL } from './label';
 
 const PANEL_COLORS: Record<PanelGroup, number[]> = {
   tray:    [0xf0a500, 0xe09000, 0xd08000, 0xffb520, 0xffc840],
@@ -261,6 +262,13 @@ export function buildBoxGeometry(params: BoxParams): BoxGeometry {
         rowPlan,
       ));
     });
+  }
+
+  const { label } = params;
+  if (label.enabled && label.text.trim() !== '') {
+    const target = LABEL_PANEL[label.face];
+    const panel = panels.find(p => p.name === target.panel);
+    if (panel) panel.engrave = { text: label.text.trim(), fontSize: label.fontSize, outward: target.outward };
   }
 
   const totalMaterialArea = panels.reduce(
