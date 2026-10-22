@@ -137,6 +137,16 @@
                                 <label>Divider Height (0 = full)</label>
                                 <input type="number" id="dH" value="0" min="0" step="1" autocomplete="off" />
                             </div>
+                            <div class="field">
+                                <label>Column Widths (mm, left to right)</label>
+                                <input type="text" id="dColW" placeholder="empty = equal columns, e.g. 40, 30, 50" autocomplete="off" spellcheck="false" />
+                            </div>
+                            <div class="field">
+                                <label>Row Depths (mm, back to front)</label>
+                                <input type="text" id="dRowD" placeholder="empty = equal rows, e.g. 25, 50" autocomplete="off" spellcheck="false" />
+                            </div>
+                            <button id="btnFitBox" style="width:100%;margin-top:8px" title="Set the box width and depth so the compartments fit exactly">Fit box size to compartments</button>
+                            <div id="divInfo"></div>
                         </div>
                     </div>
 

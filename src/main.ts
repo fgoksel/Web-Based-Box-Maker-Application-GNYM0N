@@ -1,5 +1,6 @@
 import { buildBoxGeometry } from './geometry/GeometryEngine';
 import { applyJointToPanel } from './geometry/JointEngine';
+import { layoutCompartments, parseSizeList } from './geometry/compartments';
 import { BoxRenderer } from './rendering/BoxRenderer';
 import type { BoxParams, BoxGeometry, Panel, SheetConfig, SheetLayout } from './models/types';
 import {
@@ -139,9 +140,8 @@ function readBoxParamsFromUI(): BoxParams {
   params.divider.columns = num('dCols');
   params.divider.rows = num('dRows');
   params.divider.heightOverride = num('dH');
-
-  params.inset.enabled = false;
-  params.inset.compartments = [];
+  params.divider.columnWidths = parseSizeList(el<HTMLInputElement>('dColW').value);
+  params.divider.rowDepths = parseSizeList(el<HTMLInputElement>('dRowD').value);
 
   params.label.enabled = false;
   params.label.text = '';
@@ -221,17 +221,57 @@ function validateParams(params: BoxParams): UIValidationResult {
     if (dH <= 0 || dH > iH) {
       errors.push('Divider height must be > 0 and <= internal height');
     }
-    if (cols > 1) {
-      const colSlotW = (iW - tD * (cols - 1)) / cols;
-      if (colSlotW <= 0) errors.push('Divider columns do not fit current width/thickness');
-    }
-    if (rows > 1) {
-      const rowSlotD = (iD - tD * (rows - 1)) / rows;
-      if (rowSlotD <= 0) errors.push('Divider rows do not fit current depth/thickness');
-    }
+    const colLayout = layoutCompartments(iW, tD, cols, params.divider.columnWidths, 'width');
+    const rowLayout = layoutCompartments(iD, tD, rows, params.divider.rowDepths, 'depth');
+    markFieldValid('dColW', !params.divider.columnWidths.length || !colLayout.error);
+    markFieldValid('dRowD', !params.divider.rowDepths.length || !rowLayout.error);
+    if (colLayout.error) errors.push(`Columns: ${colLayout.error}`);
+    if (rowLayout.error) errors.push(`Rows: ${rowLayout.error}`);
   }
 
   return { valid: errors.length === 0, params: errors.length ? null : params, errors };
+}
+
+/** Shows the compartment sizes that the current divider settings give. */
+function updateDividerInfo(params: BoxParams): void {
+  const info = el<HTMLElement>('divInfo');
+  const { frameThickness: tF, baseThickness: tB, dividerThickness: tD } = params.material;
+  const iW = params.width - 2 * tF;
+  const iD = params.depth - 2 * tF;
+  const d = params.divider;
+
+  el<HTMLInputElement>('dCols').disabled = d.columnWidths.length > 0;
+  el<HTMLInputElement>('dRows').disabled = d.rowDepths.length > 0;
+
+  if (!d.enabled || iW <= 0 || iD <= 0 || params.height - tB <= 0) {
+    info.textContent = '';
+    return;
+  }
+  const cols = layoutCompartments(iW, tD, d.columns, d.columnWidths, 'width');
+  const rows = layoutCompartments(iD, tD, d.rows, d.rowDepths, 'depth');
+  const fmt = (xs: number[]) => xs.map(x => (Number.isFinite(x) ? x.toFixed(1) : '?')).join(' | ');
+  info.textContent = `Compartments (mm)\nwidths: ${fmt(cols.sizes)}\ndepths: ${fmt(rows.sizes)}`;
+}
+
+/** Sets the box width and depth so the typed compartment sizes fit exactly. */
+function fitBoxToCompartments(): void {
+  const params = readBoxParamsFromUI();
+  const { frameThickness: tF, dividerThickness: tD } = params.material;
+  const widths = params.divider.columnWidths;
+  const depths = params.divider.rowDepths;
+  if (!widths.length && !depths.length) {
+    toast('Enter column widths or row depths first', 'info');
+    return;
+  }
+  const total = (xs: number[]) => xs.reduce((a, b) => a + b, 0) + tD * (xs.length - 1);
+  if (widths.length && widths.every(Number.isFinite)) {
+    el<HTMLInputElement>('bW').value = String(Math.round((total(widths) + 2 * tF) * 1000) / 1000);
+  }
+  if (depths.length && depths.every(Number.isFinite)) {
+    el<HTMLInputElement>('bD').value = String(Math.round((total(depths) + 2 * tF) * 1000) / 1000);
+  }
+  refreshValidation();
+  scheduleLiveUpdate('model');
 }
 
 function validateSheetUI(): string[] {
@@ -263,6 +303,7 @@ function refreshValidation(): UIValidationResult {
 function validateUI(showMessage = true): UIValidationResult {
   const params = readBoxParamsFromUI();
   const boxResult = validateParams(params);
+  updateDividerInfo(params);
   const sheetErrors = validateSheetUI();
   const errors = [...boxResult.errors, ...sheetErrors];
   const result: UIValidationResult = {
@@ -660,6 +701,8 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
   el<HTMLInputElement>('dCols').value = String(p.divider.columns);
   el<HTMLInputElement>('dRows').value = String(p.divider.rows);
   el<HTMLInputElement>('dH').value = String(p.divider.heightOverride);
+  el<HTMLInputElement>('dColW').value = p.divider.columnWidths.join(', ');
+  el<HTMLInputElement>('dRowD').value = p.divider.rowDepths.join(', ');
 
   el<HTMLSelectElement>('shSz').value = sheet.size;
   el<HTMLInputElement>('shGap').value = String(sheet.gap);
@@ -775,7 +818,7 @@ function initUI(): void {
 
   const modelInputs = [
     'bW', 'bD', 'bH', 'tF', 'tB', 'tD', 'kerf',
-    'tabStyle', 'tabN', 'tabW', 'lidH', 'lidTol', 'dCols', 'dRows', 'dH',
+    'tabStyle', 'tabN', 'tabW', 'lidH', 'lidTol', 'dCols', 'dRows', 'dH', 'dColW', 'dRowD',
   ];
   const sheetInputs = ['shSz', 'shGap', 'shW', 'shH'];
   for (const [ids, kind] of [[modelInputs, 'model'], [sheetInputs, 'sheet']] as const) {
@@ -797,6 +840,8 @@ function initUI(): void {
     toggleOn(el<HTMLElement>('togLive'), on);
     toast(on ? 'Automatic update on' : 'Automatic update off', 'info');
   });
+
+  el<HTMLButtonElement>('btnFitBox').addEventListener('click', fitBoxToCompartments);
 
   el<HTMLButtonElement>('btnDefaults').addEventListener('click', () => {
     applyProjectToUI({ params: defaultBoxParams(), sheet: defaultSheetConfig() });

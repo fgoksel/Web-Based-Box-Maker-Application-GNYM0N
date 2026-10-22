@@ -30,7 +30,7 @@ Everything runs in the browser. There is no server, no database and no account.
 |---|---|
 | Parametric box | Width, depth and height, with separate frame, base and divider thicknesses and a kerf value. |
 | Finger joints | Walls, base and lid are cut with tabs and matching slots that fit together. Finger width adapts to the edge length and material thickness. |
-| Dividers | A grid of column and row dividers, optionally lower than the walls. Dividers cross-halve (interlock) at every crossing. |
+| Dividers | A grid of column and row dividers, optionally lower than the walls. The compartments are either equal or have exact sizes that you type in, and the box can be sized to fit them. Dividers cross-halve (interlock) at every crossing. |
 | Lid | Optional lid built the same way as the tray, with a clearance tolerance. |
 | 3D preview | Rotatable, zoomable model with numbered parts. Wireframe, explode and reset-camera controls. Clicking a part in the list highlights it. |
 | Sheet layout | Panels are packed onto A4, A3, A2, A1 or a custom sheet size, with a configurable gap. Overflowing panels are reported. Panels can optionally be grouped by material thickness. |
@@ -65,6 +65,8 @@ The build output in `dist/` is a plain static website that can be hosted anywher
 5. Turn on **Separate by Thickness** if you cut different thicknesses from different sheets.
 6. **Export SVG** to get the cut file.
 7. **Export JSON** saves the design. **Import JSON** loads one back.
+
+**Compartment sizes.** With dividers on, leave *Column Widths* and *Row Depths* empty for equal compartments, or type exact sizes such as `40, 30, 50` (columns run left to right, rows back to front). The sizes plus the divider thicknesses must add up to the inside of the box. If they don't, the message says what inside size is needed, and **Fit box size to compartments** sets the box width and depth for you. A small summary under the fields lists the resulting compartment sizes.
 
 Changing a value after the first **Generate** updates the model automatically (switch *Update automatically* off to disable this). **Reset to defaults** restores the starting values. *Finger Width* sets a fixed finger width instead of the automatic one. On a narrow screen the three columns stack and the page scrolls.
 
@@ -139,7 +141,7 @@ With external size `W × D × H`, frame thickness `tF` and base thickness `tB`:
 - internal depth `iD = D − 2·tF`
 - internal height `iH = H − tB`
 
-The engine creates these panels, each with a sequence number, group (`tray`, `lid`, `divider`, `inset`), 3D position and rotation:
+The engine creates these panels, each with a sequence number, group (`tray`, `lid`, `divider`), 3D position and rotation:
 
 | Panel | Size |
 |---|---|
@@ -198,9 +200,8 @@ Each placed outline is rotated if needed, kerf-compensated, and written as an SV
     "width": 120, "depth": 90, "height": 55,
     "material": { "frameThickness": 3, "baseThickness": 3, "dividerThickness": 3, "kerf": 0.1 },
     "joint":   { "style": "finger", "minTabCount": 3, "tabWidthOverride": 0 },
-    "divider": { "enabled": false, "columns": 2, "rows": 2, "heightOverride": 0 },
+    "divider": { "enabled": false, "columns": 2, "rows": 2, "columnWidths": [], "rowDepths": [], "heightOverride": 0 },
     "lid":     { "enabled": false, "height": 12, "tolerance": 0.2 },
-    "inset":   { "enabled": false, "compartments": [] },
     "label":   { "enabled": false, "text": "", "face": "front", "fontSize": 8 }
   },
   "sheet": { "size": "A3", "width": 420, "height": 297, "gap": 2 }
@@ -222,7 +223,7 @@ The controller rejects a design before generating when:
 - the tab count, divider columns or divider rows are not whole numbers of at least 1
 - the walls would leave no interior (width or depth `≤ 2·tF`, or height `≤ tB`)
 - the lid is not taller than the base thickness
-- the dividers do not fit (a compartment would have zero or negative width) or are taller than the interior
+- the dividers do not fit (a compartment would have zero or negative size, or typed compartment sizes do not add up to the inside of the box) or are taller than the interior
 
 Invalid fields are highlighted and the reason is shown.
 
@@ -234,7 +235,7 @@ An imported file is validated field by field before anything is applied. All pro
 - **Types:** numbers must be real numbers (JSON `null`, text and `NaN`-like values are rejected), flags must be `true` or `false`, and each section must be an object.
 - **Ranges:** dimensions and thicknesses must be greater than zero and not absurdly large, kerf and tolerance cannot be negative, counts must be whole numbers, and the joint style, label face and sheet size must be known values.
 - **Buildable:** the walls must leave room inside the box, a lid must be taller than the base thickness, and divider grids must fit.
-- **Missing optional sections** (`joint`, `divider`, `lid`, `inset`, `label`, `sheet`) fall back to the default values, with a note. Fields that are not used are ignored, with a note.
+- **Missing optional sections** (`joint`, `divider`, `lid`, `label`, `sheet`) fall back to the default values, with a note. Fields that are not used are ignored, with a note.
 
 ---
 
@@ -280,7 +281,7 @@ After the first version, the joints were reworked so that mating edges are compl
 
 - Dividers interlock with each other but are not fixed to the walls or the base plate, which would need slots in the middle of those panels.
 - The `box` joint style currently behaves like `finger`.
-- The `inset` (custom compartments) and `label` settings exist in the data model but are not available in the interface yet.
+- The `label` setting exists in the data model but is not available in the interface yet.
 - Packing uses a single heuristic and is not guaranteed to be optimal. Comparing it with other packing methods is planned.
 - Only rectangular boxes are supported.
 

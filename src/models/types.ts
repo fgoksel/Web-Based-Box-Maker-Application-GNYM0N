@@ -38,8 +38,14 @@ export interface JointConfig {
 
 export interface DividerConfig {
   enabled: boolean;
+  /** Number of equal columns; ignored when `columnWidths` is given. */
   columns: number;
+  /** Number of equal rows; ignored when `rowDepths` is given. */
   rows: number;
+  /** Exact compartment widths, left to right. Empty means equal columns. */
+  columnWidths: number[];
+  /** Exact compartment depths, back to front. Empty means equal rows. */
+  rowDepths: number[];
   heightOverride: number;
 }
 
@@ -47,18 +53,6 @@ export interface LidConfig {
   enabled: boolean;
   height: number;
   tolerance: number;
-}
-
-export interface CompartmentSpec {
-  width: number;
-  depth: number;
-  height: number;
-  label?: string;
-}
-
-export interface InsetConfig {
-  enabled: boolean;
-  compartments: CompartmentSpec[];
 }
 
 export type LabelFace = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
@@ -78,11 +72,10 @@ export interface BoxParams {
   joint: JointConfig;
   divider: DividerConfig;
   lid: LidConfig;
-  inset: InsetConfig;
   label: LabelConfig;
 }
 
-export type PanelGroup = 'tray' | 'lid' | 'divider' | 'inset';
+export type PanelGroup = 'tray' | 'lid' | 'divider';
 
 /**
  * How one edge of a panel meets its neighbour.

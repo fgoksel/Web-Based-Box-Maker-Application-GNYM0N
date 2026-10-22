@@ -15,7 +15,6 @@ describe('GeometryEngine', () => {
     const params = defaultBoxParams();
     params.lid.enabled = false;
     params.divider.enabled = false;
-    params.inset.enabled = false;
 
     const geo = buildBoxGeometry(params);
     const names = geo.panels.map(p => p.name);

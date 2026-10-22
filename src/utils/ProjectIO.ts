@@ -1,3 +1,4 @@
+import { layoutCompartments } from '../geometry/compartments';
 import type {
   BoxMakerProject,
   BoxParams,
@@ -27,16 +28,14 @@ export function defaultBoxParams(): BoxParams {
       enabled:        false,
       columns:        2,
       rows:           2,
+      columnWidths:   [],
+      rowDepths:      [],
       heightOverride: 0,
     },
     lid: {
       enabled:   false,
       height:    12,
       tolerance: 0.2,
-    },
-    inset: {
-      enabled:      false,
-      compartments: [],
     },
     label: {
       enabled:  false,
@@ -134,6 +133,32 @@ class Reader {
     return v;
   }
 
+  /** An optional list of positive sizes. A missing list means "not used" and is not an error. */
+  sizeList(src: Obj, key: string, path: string): number[] {
+    const where = `${path}.${key}`;
+    const v = src[key];
+    if (v === undefined) return [];
+    if (!Array.isArray(v)) {
+      this.errors.push(`${where} must be a list of numbers (got ${describe(v)})`);
+      return [];
+    }
+    if (v.length > 50) {
+      this.errors.push(`${where} has too many entries (maximum 50)`);
+      return [];
+    }
+    const out: number[] = [];
+    v.forEach((item, n) => {
+      if (typeof item !== 'number' || !Number.isFinite(item)) {
+        this.errors.push(`${where}[${n}] must be a number (got ${describe(item)})`);
+      } else if (!(item > 0) || item > 10000) {
+        this.errors.push(`${where}[${n}] must be greater than 0 and at most 10000 (got ${item})`);
+      } else {
+        out.push(item);
+      }
+    });
+    return out;
+  }
+
   boolean(src: Obj, key: string, path: string, fallback: boolean): boolean {
     const v = src[key];
     if (typeof v === 'boolean') return v;
@@ -196,7 +221,7 @@ const THICKNESS = { above: 0, max: 100 };
 function readParams(r: Reader, src: Obj): BoxParams {
   const d = defaultBoxParams();
   const path = 'params';
-  r.unknownKeys(src, path, ['width', 'depth', 'height', 'material', 'joint', 'divider', 'lid', 'inset', 'label']);
+  r.unknownKeys(src, path, ['width', 'depth', 'height', 'material', 'joint', 'divider', 'lid', 'label']);
 
   const params: BoxParams = {
     width: r.number(src, 'width', path, d.width, DIM),
@@ -206,7 +231,6 @@ function readParams(r: Reader, src: Obj): BoxParams {
     joint: { ...d.joint },
     divider: { ...d.divider },
     lid: { ...d.lid },
-    inset: { enabled: d.inset.enabled, compartments: [] },
     label: { ...d.label },
   };
 
@@ -236,11 +260,13 @@ function readParams(r: Reader, src: Obj): BoxParams {
   const divider = r.section(src, 'divider', path);
   if (divider) {
     const dp = `${path}.divider`;
-    r.unknownKeys(divider, dp, ['enabled', 'columns', 'rows', 'heightOverride']);
+    r.unknownKeys(divider, dp, ['enabled', 'columns', 'rows', 'columnWidths', 'rowDepths', 'heightOverride']);
     params.divider = {
       enabled: r.boolean(divider, 'enabled', dp, d.divider.enabled),
       columns: r.number(divider, 'columns', dp, d.divider.columns, { min: 1, max: 50, integer: true }),
       rows: r.number(divider, 'rows', dp, d.divider.rows, { min: 1, max: 50, integer: true }),
+      columnWidths: r.sizeList(divider, 'columnWidths', dp),
+      rowDepths: r.sizeList(divider, 'rowDepths', dp),
       heightOverride: r.number(divider, 'heightOverride', dp, d.divider.heightOverride, { min: 0, max: 10000 }),
     };
   }
@@ -254,37 +280,6 @@ function readParams(r: Reader, src: Obj): BoxParams {
       height: r.number(lid, 'height', lp, d.lid.height, DIM),
       tolerance: r.number(lid, 'tolerance', lp, d.lid.tolerance, { min: 0, max: 50 }),
     };
-  }
-
-  const inset = r.section(src, 'inset', path);
-  if (inset) {
-    const ip = `${path}.inset`;
-    r.unknownKeys(inset, ip, ['enabled', 'compartments']);
-    params.inset.enabled = r.boolean(inset, 'enabled', ip, d.inset.enabled);
-    const list = inset.compartments;
-    if (!Array.isArray(list)) {
-      r.errors.push(
-        list === undefined ? `${ip}.compartments is missing` : `${ip}.compartments must be a list (got ${describe(list)})`,
-      );
-    } else if (list.length > 100) {
-      r.errors.push(`${ip}.compartments has too many entries (maximum 100)`);
-    } else {
-      list.forEach((item, n) => {
-        const cp = `${ip}.compartments[${n}]`;
-        if (!isObject(item)) {
-          r.errors.push(`${cp} must be an object (got ${describe(item)})`);
-          return;
-        }
-        r.unknownKeys(item, cp, ['width', 'depth', 'height', 'label']);
-        const comp = {
-          width: r.number(item, 'width', cp, 1, DIM),
-          depth: r.number(item, 'depth', cp, 1, DIM),
-          height: r.number(item, 'height', cp, 1, DIM),
-        } as { width: number; depth: number; height: number; label?: string };
-        if (item.label !== undefined) comp.label = r.string(item, 'label', cp, '', 100);
-        params.inset.compartments.push(comp);
-      });
-    }
   }
 
   const label = r.section(src, 'label', path);
@@ -338,12 +333,10 @@ function checkBuildable(r: Reader, p: BoxParams): void {
   if (p.divider.enabled && iW > 0 && iD > 0 && iH > 0) {
     const dH = p.divider.heightOverride > 0 ? p.divider.heightOverride : iH;
     if (dH > iH) r.errors.push('params.divider.heightOverride is taller than the inside of the box');
-    if (p.divider.columns > 1 && (iW - tD * (p.divider.columns - 1)) / p.divider.columns <= 0) {
-      r.errors.push('params.divider.columns do not fit in the box width');
-    }
-    if (p.divider.rows > 1 && (iD - tD * (p.divider.rows - 1)) / p.divider.rows <= 0) {
-      r.errors.push('params.divider.rows do not fit in the box depth');
-    }
+    const cols = layoutCompartments(iW, tD, p.divider.columns, p.divider.columnWidths, 'width');
+    if (cols.error) r.errors.push(`params.divider: ${cols.error}`);
+    const rows = layoutCompartments(iD, tD, p.divider.rows, p.divider.rowDepths, 'depth');
+    if (rows.error) r.errors.push(`params.divider: ${rows.error}`);
   }
 }
 
