@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { buildBoxGeometry } from '../geometry/GeometryEngine';
 import { applyJointToPanel } from '../geometry/JointEngine';
-import { layoutCompartments } from '../geometry/compartments';
 import { packPanels, SHEET_SIZES } from '../svg/BinPacker';
 import { PACKING_LABELS, type PackingAlgorithm } from '../svg/packers';
-import { defaultBoxParams, defaultSheetConfig } from '../utils/ProjectIO';
-import type { BoxParams, Panel, SheetConfig } from '../models/types';
+import { defaultSheetConfig } from '../utils/ProjectIO';
+import type { Panel, SheetConfig } from '../models/types';
+import { randomValidParams } from './helpers/randomBoxes';
 
 /**
  * Compares the packing methods on 300 randomly generated boxes (the same ones every run).
+ * The boxes come from the shared random generator (sizes, materials, lid, dividers, label).
  * Run it alone with `npm run benchmark` to see the table.
  *
  * Measures:
@@ -27,56 +28,12 @@ const SHEETS = ['A4', 'A3', 'A2', 'A1'] as const;
 
 const pct = (flags: boolean[]) => `${((flags.filter(Boolean).length / flags.length) * 100).toFixed(1).padStart(6)}%`;
 
-function mulberry32(seed: number): () => number {
-  let a = seed;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 function randomBoxes(count: number, seed: number): Panel[][] {
-  const rand = mulberry32(seed);
-  const pick = <T,>(xs: T[]) => xs[Math.floor(rand() * xs.length)];
-  const between = (lo: number, hi: number) => lo + rand() * (hi - lo);
-
-  const boxes: Panel[][] = [];
-  while (boxes.length < count) {
-    const params: BoxParams = defaultBoxParams();
-    const t = pick([2, 3, 4, 6]);
-    params.width = Math.round(between(60, 300));
-    params.depth = Math.round(between(50, 250));
-    params.height = Math.round(between(30, 150));
-    params.material = { ...params.material, frameThickness: t, baseThickness: pick([t, 3, 6]), dividerThickness: pick([2, 3]) };
-    if (rand() < 0.4) {
-      params.lid.enabled = true;
-      params.lid.height = Math.round(between(15, 40));
-    }
-    if (rand() < 0.5) {
-      params.divider.enabled = true;
-      params.divider.columns = 1 + Math.floor(rand() * 4);
-      params.divider.rows = 1 + Math.floor(rand() * 4);
-      if (rand() < 0.5) params.divider.heightOverride = Math.round(between(10, 25));
-    }
-
-    const { frameThickness: tF, baseThickness: tB, dividerThickness: tD } = params.material;
-    const iW = params.width - 2 * tF;
-    const iD = params.depth - 2 * tF;
-    const iH = params.height - tB;
-    if (iH < 10 || params.lid.enabled && params.lid.height <= tB) continue;
-    if (params.divider.enabled) {
-      if (params.divider.heightOverride > iH) continue;
-      if (layoutCompartments(iW, tD, params.divider.columns, [], 'width').error) continue;
-      if (layoutCompartments(iD, tD, params.divider.rows, [], 'depth').error) continue;
-    }
-
+  return randomValidParams(count, seed).map(params => {
     const geo = buildBoxGeometry(params);
     geo.panels.forEach(p => applyJointToPanel(p, params.joint));
-    boxes.push(geo.panels);
-  }
-  return boxes;
+    return geo.panels;
+  });
 }
 
 function stripSheet(algorithm: PackingAlgorithm): SheetConfig {
