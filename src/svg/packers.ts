@@ -20,7 +20,7 @@ export interface Placement {
 
 export type Packer = (items: Size[], binW: number, binH: number) => Array<Placement | null>;
 
-interface FreeRect {
+export interface FreeRect {
   x: number;
   y: number;
   w: number;
@@ -61,7 +61,7 @@ function guillotineSplit(fr: FreeRect, w: number, h: number): FreeRect[] {
   return result;
 }
 
-function pruneContained(rects: FreeRect[]): FreeRect[] {
+export function pruneContained(rects: FreeRect[]): FreeRect[] {
   return rects.filter(a =>
     !rects.some(b =>
       b !== a &&
@@ -107,12 +107,12 @@ export const packGuillotine: Packer = (items, binW, binH) => {
 // Best short side fit: put the item where the smaller leftover side is smallest.
 // ---------------------------------------------------------------------------
 
-function intersects(a: FreeRect, b: FreeRect): boolean {
+export function intersects(a: FreeRect, b: FreeRect): boolean {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
 /** Cuts `placed` out of `fr`, returning the (up to four) maximal rectangles that remain. */
-function cutOut(fr: FreeRect, placed: FreeRect): FreeRect[] {
+export function cutOut(fr: FreeRect, placed: FreeRect): FreeRect[] {
   const out: FreeRect[] = [];
   if (placed.x > fr.x) out.push({ x: fr.x, y: fr.y, w: placed.x - fr.x, h: fr.h });
   if (placed.x + placed.w < fr.x + fr.w) {

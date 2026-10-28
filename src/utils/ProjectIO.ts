@@ -1,10 +1,12 @@
 import { layoutCompartments } from '../geometry/compartments';
 import { labelProblem } from '../geometry/label';
 import { DEFAULT_CUTTING } from '../svg/cutting';
+import { DEFAULT_SEARCH } from '../svg/layoutSearch';
 import type {
   BoxMakerProject,
   BoxParams,
   CuttingConfig,
+  LayoutSearchConfig,
   SheetConfig,
   ValidationResult,
 } from '../models/types';
@@ -58,6 +60,7 @@ export function defaultSheetConfig(): SheetConfig {
     gap:    2,
     algorithm: 'maxrects',
     cutting: { ...DEFAULT_CUTTING },
+    search: { ...DEFAULT_SEARCH },
   };
 }
 
@@ -333,6 +336,20 @@ function readCutting(r: Reader, src: unknown): CuttingConfig {
   };
 }
 
+/** The layout search was added after the first file format, so a file without it packs once, as before. */
+function readSearch(r: Reader, src: unknown): LayoutSearchConfig {
+  if (src === undefined) return { ...DEFAULT_SEARCH };
+  if (!isObject(src)) {
+    r.errors.push(`sheet.search must be an object (got ${describe(src)})`);
+    return { ...DEFAULT_SEARCH };
+  }
+  r.unknownKeys(src, 'sheet.search', ['enabled', 'candidates']);
+  return {
+    enabled: r.boolean(src, 'enabled', 'sheet.search', DEFAULT_SEARCH.enabled),
+    candidates: r.number(src, 'candidates', 'sheet.search', DEFAULT_SEARCH.candidates, { min: 1, max: 5000, integer: true }),
+  };
+}
+
 function readSheet(r: Reader, src: unknown): SheetConfig {
   const d = defaultSheetConfig();
   if (src === undefined) {
@@ -343,9 +360,10 @@ function readSheet(r: Reader, src: unknown): SheetConfig {
     r.errors.push(`sheet must be an object (got ${describe(src)})`);
     return d;
   }
-  r.unknownKeys(src, 'sheet', ['size', 'width', 'height', 'gap', 'algorithm', 'cutting']);
+  r.unknownKeys(src, 'sheet', ['size', 'width', 'height', 'gap', 'algorithm', 'cutting', 'search']);
   return {
     cutting: readCutting(r, src.cutting),
+    search: readSearch(r, src.search),
     // Files saved before there was a choice were packed with guillotine, so they keep it.
     algorithm: src.algorithm === undefined ? 'guillotine' : r.oneOf(src, 'algorithm', 'sheet', PACKING_ALGORITHMS, d.algorithm ?? 'maxrects'),
     size: r.oneOf(src, 'size', 'sheet', SHEET_SIZES, d.size),
