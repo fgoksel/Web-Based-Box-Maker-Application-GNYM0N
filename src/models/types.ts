@@ -169,6 +169,13 @@ export interface CuttingConfig {
   travelSpeed: number;
 }
 
+/** Try many placement orders and keep the tightest layout, instead of packing once. */
+export interface LayoutSearchConfig {
+  enabled: boolean;
+  /** How many different placement orders to try. Each is packed with every method. */
+  candidates: number;
+}
+
 export interface SheetConfig {
   size: StandardSheetSize;
   width: number;
@@ -178,6 +185,8 @@ export interface SheetConfig {
   algorithm?: PackingAlgorithm;
   /** Cut order and speeds. Files without it use the defaults. */
   cutting?: CuttingConfig;
+  /** Layout search. Files without it pack once, as before. */
+  search?: LayoutSearchConfig;
 }
 
 export interface PlacedPanel {
@@ -188,11 +197,25 @@ export interface PlacedPanel {
   overflow: boolean;
 }
 
+/** What the layout search did, when it was used. */
+export interface LayoutSearchReport {
+  /** The packing method of the layout that was kept. */
+  algorithm: PackingAlgorithm;
+  /** Placement orders tried (each with every method). */
+  orders: number;
+  /** Packings run in total. */
+  packings: number;
+  milliseconds: number;
+  /** True when the time limit ended the search before every order was tried. */
+  stoppedEarly: boolean;
+}
+
 export interface SheetLayout {
   config: SheetConfig;
   placed: PlacedPanel[];
   efficiency: number;
   sheetsRequired: number;
+  search?: LayoutSearchReport;
 }
 
 export interface BoxMakerProject {

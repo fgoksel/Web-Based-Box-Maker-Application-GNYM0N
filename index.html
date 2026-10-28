@@ -255,6 +255,15 @@
                                 <option value="guillotine">Guillotine</option>
                             </select>
                         </div>
+                        <div class="toggle-row" id="togSearchRow" style="margin-top:10px" title="Try many placement orders with every packing method and keep the tightest layout. Never worse than packing once; the chosen method then only breaks ties.">
+                            <span>Search for a tighter layout</span>
+                            <div class="toggle" id="togSearch"></div>
+                        </div>
+                        <div class="field" style="margin-top:8px">
+                            <label>Layouts to try</label>
+                            <input type="number" id="srchN" value="100" min="1" max="5000" step="50" autocomplete="off" title="How many different placement orders are tried, each with every method. More takes longer." />
+                        </div>
+                        <div class="sub-note" id="searchInfo" style="margin-top:6px;font-size:11px;opacity:.7">Search is off</div>
                         <button id="btnTightGap" style="width:100%;margin-top:8px" title="Put the parts close together, so the laser has less distance to travel between them and less sheet is used. The gap is set to a small value based on the kerf, which you can change.">Tight spacing</button>
                         <div class="sub" id="customSheetSub">
                             <div class="grid2">

@@ -34,6 +34,7 @@ Everything runs in the browser. There is no server, no database and no account.
 | Lid | Optional lid built the same way as the tray, with a clearance tolerance. |
 | 3D preview | Rotatable, zoomable model with numbered parts. Wireframe, explode and reset-camera controls. Clicking a part in the list highlights it. |
 | Sheet layout | Panels are packed onto A4, A3, A2, A1 or a custom sheet size, with a configurable gap, using one of three packing methods (MaxRects, Skyline, Guillotine). Overflowing panels are reported. Panels can optionally be grouped by material thickness. |
+| Layout search | An option that tries many placement orders with every packing method and keeps the tightest layout. It is never worse than packing once, and on 300 random boxes it needs about 5% less sheet. |
 | Engraved label | A line of text on any face (front, back, left, right, bottom or the lid top), shown on the 3D model and written to the SVG as a separate engrave layer. |
 | Cutting time | The parts are written to the SVG in an order that keeps the laser head's travel short, and each outline starts at its nearest corner. The application shows the cutting length, the travel with and without that ordering, and an estimated time from the speeds you enter. *Tight spacing* sets a small gap between parts. |
 | SVG export | One cut path per part, in cutting order, with part numbers, redundant points removed and kerf compensation applied. |
@@ -100,6 +101,8 @@ src/
   svg/
     BinPacker.ts            Sheet packing and the 2D preview
     packers.ts              The three packing methods (MaxRects, Skyline, Guillotine)
+    partSignature.ts        Recognises parts of equal shape and groups them
+    layoutSearch.ts         Tries many placement orders and keeps the best layout
     cutting.ts              Cut order, travel and time estimate
     SvgEngine.ts            SVG generation and download
   utils/ProjectIO.ts        Default values, JSON export and import
@@ -196,6 +199,32 @@ Panels are packed as rectangles (their outline bounding boxes), largest first, e
 
 A part that fits nowhere is marked `overflow` and is left out of the SVG, with a comment listing it. **Separate by Thickness** packs each thickness group onto its own sheet section. Sheet efficiency is the used panel area divided by the sheet area.
 
+#### Layout search (`layoutSearch.ts`, `partSignature.ts`)
+
+Packing once, largest first, is quick but leaves gains behind, so the *Search for a tighter layout* option tries many placement orders instead and keeps the best result.
+
+- **Equal parts.** Panels of equal shape are recognised from their outlines, not their names (`partSignature.ts`). The signature ignores the vertex an outline starts from, its direction, its position and points on a straight line; it compares coordinates to 0.0001 mm and adds the thickness and any engraved text, so parts that differ in anything that reaches the cutter are never treated as equal. Opposite walls of a box, and the dividers of a grid, form groups. The parts stay separate: each keeps its own number and metadata.
+- **Orders.** The first order is what packing once gives. Then, for each of five sort keys (area, longest side, width, height, outline length), the parts are sorted on their own and with equal parts kept together, because lining them up helps on some sheets and not on others. The rest of the budget is seeded shuffles of the groups and of the parts.
+- **Methods.** Every order is packed with all three methods, the method you chose first.
+- **Choosing.** A layout is better if more material fits on the sheet (the total area of the parts placed, so a big part is not traded for a small one; when every part fits this is the same for all layouts); then if the rectangle from the sheet corner that encloses the parts is smaller; then if the free space is less broken up (one minus the largest free rectangle over all free area). A tie keeps the candidate tried first, so the result never depends on anything but the input. The search therefore never returns a layout worse than packing once with the chosen method.
+- **Budget.** *Layouts to try* sets how many orders are tried (default 100, at most 5000). A 2 second limit stops the search on a huge design and says so; that is the only way the result can differ between runs.
+
+The sheet is still a single sheet: parts that do not fit are reported as overflow, as before.
+
+Compared with packing once, on the same 300 random boxes (`npm run benchmark`, 100 orders per box):
+
+| Method | Occupied (cm²) | Best or tied | Fits A3 | Fits A2 | Smallest sheet (cm²) | Time per box |
+|---|---|---|---|---|---|---|
+| Guillotine | 1439 | 31 | 43.7% | 90.0% | 2142 | 0.05 ms |
+| MaxRects | 1573 | 13 | 46.3% | 92.3% | 2044 | 0.03 ms |
+| Skyline | 1375 | 33 | 43.7% | 91.0% | 2119 | 0.03 ms |
+| **Search (100 orders)** | **1275** | **300** | **50.7%** | **93.7%** | **1950** | 6 ms |
+
+- *Occupied* is the area of the bounding rectangle from the sheet corner on a 420 mm wide strip. It is what the search makes smaller, so it is not an independent measure; it is not the material the parts use, which is less because of the fingers and slots. The fit rates and the smallest sheet are independent of it.
+- Against the best method for each measure, the search occupies about 7% less than the best single method, fits 4 more boxes in 100 on an A3 sheet, and needs about 4.6% less sheet area on average (2044 to 1950 cm²).
+- Most of the gain comes early: 10 orders give 1294 cm², 30 give 1283, 100 give 1275 and 500 give 1268, at 0.9, 2.1, 6 and 28 ms per box.
+- The packers treat parts as rectangles, so the gain comes from better orders and from choosing the best method for each box, not from fitting parts into each other's notches.
+
 #### How the methods compare
 
 `npm run benchmark` packs 300 random boxes (the same ones every run: widths 60 to 300 mm, depths 50 to 250 mm, heights 30 to 150 mm, 2 to 6 mm material, about 40% with a lid and half with dividers) with each method and prints this table. The times depend on the computer; the other columns do not.
@@ -262,7 +291,7 @@ Each placed outline is rotated if needed, kerf-compensated, started at its plann
     "lid":     { "enabled": false, "height": 12, "tolerance": 0.2 },
     "label":   { "enabled": false, "text": "", "face": "front", "fontSize": 8 }
   },
-  "sheet": { "size": "A3", "width": 420, "height": 297, "gap": 2, "algorithm": "maxrects", "cutting": { "optimise": true, "cutSpeed": 10, "travelSpeed": 200 } }
+  "sheet": { "size": "A3", "width": 420, "height": 297, "gap": 2, "algorithm": "maxrects", "cutting": { "optimise": true, "cutSpeed": 10, "travelSpeed": 200 }, "search": { "enabled": false, "candidates": 100 } }
 }
 ```
 
@@ -302,10 +331,10 @@ An imported file is validated field by field before anything is applied. All pro
 
 ```bash
 npm test             # all tests
-npm run benchmark    # only the two benchmarks, with their tables printed
+npm run benchmark    # only the three benchmarks, with their tables printed
 ```
 
-There are about 180 automated tests. They cover:
+There are about 240 automated tests. They cover:
 
 - **Geometry:** internal dimensions, panel list, lid panels, grounding of the bottom and walls, dividers on the floor, and divider positions for equal and exact compartment sizes.
 - **Joints:** tab sizing and minimum finger width, outlines without invalid numbers, normalisation, repeatable results, flat style, outline helpers, and the divider slot sizes.
@@ -315,6 +344,8 @@ There are about 180 automated tests. They cover:
 - **Project files:** valid files round-trip exactly, and unreadable input, wrong types, out-of-range values, boxes that cannot be built, unknown fields and a `__proto__` key are all handled.
 - **Packing:** each of the three methods keeps every part inside the sheet, without overlaps and with the gap, on random parts and on random boxes. The benchmark table is printed by `npm run benchmark`.
 - **Cutting:** the length of an outline, travel for hand-made cases with known answers, start corners checked against a brute-force search, the guarantee that the optimised order never needs more travel than the listed one (on 150 random sets of parts), the time arithmetic, and shared edges. The SVG is checked to hold one path per part in the planned order, started at the planned corner, with the same total cut length either way, and with matching colours.
+- **Equal parts:** the same shape from a different starting vertex, direction or position gives the same signature; a 0.01 mm difference, another thickness or different engraving does not; quarter turns, half turns and mirror images only match when allowed and never for engraved parts; and on the default, lid, divider and 30 random boxes every panel is in exactly one group, whatever order the panels are given in.
+- **Layout search:** the scoring on small cases with known answers; the candidate orders (the first is packing once, no repeats, only permutations, the budget is respected, the same every time); and, for the default, lid and divider boxes with each method on A4, A3 and A2, on sheets with another gap, on a sheet that is too small, on each thickness group and on 25 random boxes, that the result is never worse than packing once, keeps the margins and the gap, lists every panel, and is the same on every run. It also checks that the time limit still gives a valid layout and that the search finds a fit that packing once misses.
 - **SVG:** a valid document with paths, and the overflow comment.
 
 ### Random-box tests
@@ -354,7 +385,8 @@ After the first version, the joints were reworked so that mating edges are compl
 
 - Dividers interlock with each other but are not fixed to the walls or the base plate, which would need slots in the middle of those panels.
 - Engraved text is one line, centred on its face. Several lines, images and free positioning are not supported.
-- Packing uses heuristics and is not guaranteed to be optimal, and parts are packed as their bounding rectangles, so a part's notches are not filled with smaller parts.
+- Packing uses heuristics and is not guaranteed to be optimal, and parts are packed as their bounding rectangles, so a part's notches are not filled with smaller parts. The layout search improves the order and the choice of method, not that.
+- The sheet is a single sheet: parts that do not fit are reported, and no second sheet is laid out.
 - Cut lines are not shared between touching parts. The benchmark shows this could save up to about 14% of the cut length.
 - The time estimate uses the speeds you enter and ignores acceleration, piercing and engraving, and the head is assumed to start at the sheet's origin. The cutting order is only followed if the cutter software cuts paths in file order.
 - Only rectangular boxes are supported.

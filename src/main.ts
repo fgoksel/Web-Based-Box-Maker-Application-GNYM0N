@@ -3,7 +3,7 @@ import { applyJointToPanel } from './geometry/JointEngine';
 import { layoutCompartments, parseSizeList } from './geometry/compartments';
 import { labelIssue } from './geometry/label';
 import { BoxRenderer } from './rendering/BoxRenderer';
-import type { BoxParams, BoxGeometry, CuttingConfig, Panel, SheetConfig, SheetLayout } from './models/types';
+import type { BoxParams, BoxGeometry, CuttingConfig, LayoutSearchConfig, Panel, SheetConfig, SheetLayout } from './models/types';
 import {
   defaultBoxParams,
   defaultSheetConfig,
@@ -19,6 +19,7 @@ import {
   SHEET_SIZES,
   type GroupedSheetLayout,
 } from './svg/BinPacker';
+import { PACKING_LABELS } from './svg/packers';
 import { downloadSVG, generateGroupedSVG, generateSVG, layoutsCutStats } from './svg/SvgEngine';
 
 type ViewMode = '3d' | 'flat';
@@ -300,6 +301,11 @@ function validateSheetUI(): string[] {
     if (!ok) errors.push(`${name} must be greater than 0`);
   }
 
+  const nSearch = Number(el<HTMLInputElement>('srchN').value);
+  const searchOk = Number.isInteger(nSearch) && nSearch >= 1 && nSearch <= 5000;
+  markFieldValid('srchN', searchOk);
+  if (!searchOk) errors.push('Layouts to try must be a whole number from 1 to 5000');
+
   const custom = el<HTMLSelectElement>('shSz').value === 'custom';
   for (const [id, name] of [['shW', 'Sheet width'], ['shH', 'Sheet height']] as const) {
     const v = Number(el<HTMLInputElement>(id).value);
@@ -353,6 +359,13 @@ function readCuttingFromUI(): CuttingConfig {
   };
 }
 
+function readSearchFromUI(): LayoutSearchConfig {
+  return {
+    enabled: el<HTMLElement>('togSearch').classList.contains('on'),
+    candidates: Number(el<HTMLInputElement>('srchN').value),
+  };
+}
+
 function readSheetFromUI(): SheetConfig {
   const config = defaultSheetConfig();
   config.gap = num('shGap');
@@ -361,6 +374,7 @@ function readSheetFromUI(): SheetConfig {
   config.size = size as SheetConfig['size'];
   config.algorithm = el<HTMLSelectElement>('shAlg').value as SheetConfig['algorithm'];
   config.cutting = readCuttingFromUI();
+  config.search = readSearchFromUI();
 
   if (config.size === 'custom') {
     config.width = Number(el<HTMLInputElement>('shW').value);
@@ -457,6 +471,20 @@ function refreshThicknessSelector(): void {
     const count = g.layout.placed.filter(p => !p.overflow).length;
     stats.textContent = `${g.label}: ${count} parts | ${(g.layout.efficiency * 100).toFixed(1)}%`;
   }
+}
+
+/** Says what the layout search did, or that it is off. */
+function showSearchInfo(layouts: SheetLayout[]): void {
+  const reports = layouts.flatMap(l => (l.search ? [l.search] : []));
+  if (!reports.length) {
+    setText('searchInfo', 'Search is off');
+    return;
+  }
+  const orders = reports.reduce((n, r) => n + r.orders, 0);
+  const ms = reports.reduce((n, r) => n + r.milliseconds, 0);
+  const methods = [...new Set(reports.map(r => PACKING_LABELS[r.algorithm]))].join(', ');
+  const early = reports.some(r => r.stoppedEarly) ? ' (stopped at the time limit)' : '';
+  setText('searchInfo', `Tried ${orders} orders in ${ms} ms; best: ${methods}${early}`);
 }
 
 function updateSummary(geometry: BoxGeometry, layout: SheetLayout | null): void {
@@ -636,6 +664,7 @@ function runPacking(): void {
     setActionEnabled('btnSVG', true);
     setStatusTone(anyOverflow ? 'processing' : 'ready');
     updateCuttingSummary();
+    showSearchInfo(grouped.map(g => g.layout));
     return;
   }
 
@@ -658,6 +687,7 @@ function runPacking(): void {
   }
   setActionEnabled('btnSVG', true);
   updateCuttingSummary();
+  showSearchInfo([layout]);
 }
 
 function doExportSVG(): void {
@@ -788,6 +818,9 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
   el<HTMLInputElement>('cutSpd').value = String(cutting.cutSpeed);
   el<HTMLInputElement>('trvSpd').value = String(cutting.travelSpeed);
   toggleOn(el<HTMLElement>('togOpt'), cutting.optimise);
+  const search = sheet.search ?? { enabled: false, candidates: 100 };
+  toggleOn(el<HTMLElement>('togSearch'), search.enabled);
+  el<HTMLInputElement>('srchN').value = String(search.candidates);
   el<HTMLInputElement>('shGap').value = String(sheet.gap);
   el<HTMLInputElement>('shW').value = String(sheet.width);
   el<HTMLInputElement>('shH').value = String(sheet.height);
@@ -913,7 +946,7 @@ function initUI(): void {
     'tabStyle', 'tabN', 'tabW', 'lidH', 'lidTol', 'dCols', 'dRows', 'dH', 'dColW', 'dRowD',
     'lblText', 'lblFace', 'lblSize',
   ];
-  const sheetInputs = ['shSz', 'shAlg', 'shGap', 'shW', 'shH'];
+  const sheetInputs = ['shSz', 'shAlg', 'shGap', 'shW', 'shH', 'srchN'];
   for (const [ids, kind] of [[modelInputs, 'model'], [sheetInputs, 'sheet']] as const) {
     for (const id of ids) {
       const node = el<HTMLElement>(id);
@@ -956,6 +989,14 @@ function initUI(): void {
     toggleOn(el<HTMLElement>('togOpt'), on);
     updateCuttingSummary();
     toast(on ? 'Cut order optimised' : 'Cut order as listed', 'info');
+  });
+
+  el<HTMLElement>('togSearchRow').addEventListener('click', () => {
+    const on = !el<HTMLElement>('togSearch').classList.contains('on');
+    toggleOn(el<HTMLElement>('togSearch'), on);
+    refreshValidation();
+    scheduleLiveUpdate('sheet');
+    toast(on ? 'Searching for a tighter layout' : 'Packing once', 'info');
   });
 
   el<HTMLButtonElement>('btnDefaults').addEventListener('click', () => {

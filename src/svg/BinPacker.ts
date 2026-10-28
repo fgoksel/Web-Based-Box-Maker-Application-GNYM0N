@@ -1,5 +1,6 @@
 import type { Panel, PlacedPanel, SheetConfig, SheetLayout } from '../models/types';
 import { PACKERS } from './packers';
+import { searchLayout } from './layoutSearch';
 
 export const SHEET_SIZES: Record<string, [number, number]> = {
   A4: [297, 210],
@@ -18,7 +19,8 @@ export function resolveSheetDimensions(config: SheetConfig): { w: number; h: num
 
 /**
  * Packs the panels onto one sheet with the method chosen in `config.algorithm`
- * (guillotine when none is given). Panels are placed largest first. Each part takes up its own
+ * (guillotine when none is given). Panels are placed largest first, or, with `config.search` on, in the
+ * order that gives the tightest layout (see layoutSearch). Each part takes up its own
  * size plus the gap, so neighbours and the sheet edge are always at least `gap` apart.
  * A panel that does not fit is marked `overflow`.
  */
@@ -31,11 +33,16 @@ export function packPanels(panels: Panel[], config: SheetConfig): SheetLayout {
     (a, b) => b.panelWidth * b.panelHeight - a.panelWidth * a.panelHeight,
   );
 
-  const spots = PACKERS[algorithm](
-    sorted.map(p => ({ w: p.panelWidth + gap, h: p.panelHeight + gap })),
-    shW - gap,
-    shH - gap,
-  );
+  const items = sorted.map(p => ({ w: p.panelWidth + gap, h: p.panelHeight + gap }));
+  let spots: ReturnType<(typeof PACKERS)[typeof algorithm]>;
+  let search: SheetLayout['search'];
+  if (config.search?.enabled) {
+    const found = searchLayout(sorted, items, shW - gap, shH - gap, { candidates: config.search.candidates, algorithm });
+    spots = found.spots;
+    search = found.report;
+  } else {
+    spots = PACKERS[algorithm](items, shW - gap, shH - gap);
+  }
 
   let usedArea = 0;
   const placed: PlacedPanel[] = sorted.map((panel, i) => {
@@ -52,6 +59,7 @@ export function packPanels(panels: Panel[], config: SheetConfig): SheetLayout {
     placed,
     efficiency,
     sheetsRequired: placed.some(p => p.overflow) ? 2 : 1,
+    ...(search ? { search } : {}),
   };
 }
 

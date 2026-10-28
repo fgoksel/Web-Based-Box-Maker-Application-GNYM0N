@@ -295,6 +295,47 @@ describe('importProject: field checks', () => {
     }
   });
 
+  it('keeps the layout search settings', () => {
+    const sheet = { ...defaultSheetConfig(), search: { enabled: true, candidates: 350 } };
+    const res = importProject(exportProject(defaultBoxParams(), sheet));
+    expect(res.success).toBe(true);
+    expect(res.project?.sheet.search).toEqual({ enabled: true, candidates: 350 });
+  });
+
+  it('gives a file from before the layout search the search switched off, without a note', () => {
+    const file = validFile();
+    delete file.sheet.search;
+    const res = importObject(file);
+    expect(res.success).toBe(true);
+    expect(res.project?.sheet.search).toEqual({ enabled: false, candidates: 100 });
+    expect(res.validation.warnings).toEqual([]);
+  });
+
+  it('rejects layout search settings that make no sense', () => {
+    const cases: Array<[Record<string, unknown> | string | number, string]> = [
+      [{ enabled: 'yes', candidates: 100 }, 'sheet.search.enabled must be true or false'],
+      [{ enabled: true, candidates: 0 }, 'sheet.search.candidates must be at least 1'],
+      [{ enabled: true, candidates: 1.5 }, 'sheet.search.candidates must be a whole number'],
+      [{ enabled: true, candidates: 100000 }, 'sheet.search.candidates must be at most 5000'],
+      [{ enabled: true, candidates: 'many' }, 'sheet.search.candidates must be a number'],
+      [{ enabled: true }, 'sheet.search.candidates is missing'],
+      ['on', 'sheet.search must be an object'],
+    ];
+    for (const [search, message] of cases) {
+      const file = validFile();
+      file.sheet.search = search;
+      expect(errorsOf(file).some(e => e.startsWith(message)), message).toBe(true);
+    }
+  });
+
+  it('ignores an unknown layout search setting with a note', () => {
+    const file = validFile();
+    file.sheet.search = { enabled: true, candidates: 10, budget: 5 };
+    const res = importObject(file);
+    expect(res.success).toBe(true);
+    expect(res.validation.warnings).toContain('sheet.search.budget is not used and was ignored');
+  });
+
   it('rejects an invalid sheet', () => {
     const file = validFile();
     file.sheet = { size: 'B7', width: -1, height: 297, gap: 2 };
