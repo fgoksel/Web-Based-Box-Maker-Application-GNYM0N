@@ -262,6 +262,39 @@ describe('importProject: field checks', () => {
     expect(errorsOf(file)).toContain('sheet.algorithm must be one of guillotine, maxrects, skyline (got "shelf")');
   });
 
+  it('keeps the cutting settings', () => {
+    const sheet = { ...defaultSheetConfig(), cutting: { optimise: false, cutSpeed: 25, travelSpeed: 350 } };
+    const res = importProject(exportProject(defaultBoxParams(), sheet));
+    expect(res.success).toBe(true);
+    expect(res.project?.sheet.cutting).toEqual({ optimise: false, cutSpeed: 25, travelSpeed: 350 });
+  });
+
+  it('gives a file from before the cutting settings the defaults, without a note', () => {
+    const file = validFile();
+    delete file.sheet.cutting;
+    const res = importObject(file);
+    expect(res.success).toBe(true);
+    expect(res.project?.sheet.cutting).toEqual({ optimise: true, cutSpeed: 10, travelSpeed: 200 });
+    expect(res.validation.warnings).toEqual([]);
+  });
+
+  it('rejects cutting settings that make no sense', () => {
+    const cases: Array<[Record<string, unknown> | string | number, string]> = [
+      [{ optimise: 'yes', cutSpeed: 10, travelSpeed: 200 }, 'sheet.cutting.optimise must be true or false'],
+      [{ optimise: true, cutSpeed: 0, travelSpeed: 200 }, 'sheet.cutting.cutSpeed must be greater than 0'],
+      [{ optimise: true, cutSpeed: 10, travelSpeed: -5 }, 'sheet.cutting.travelSpeed must be greater than 0'],
+      [{ optimise: true, cutSpeed: 10, travelSpeed: 1e9 }, 'sheet.cutting.travelSpeed must be at most 5000'],
+      [{ optimise: true, cutSpeed: 'fast', travelSpeed: 200 }, 'sheet.cutting.cutSpeed must be a number'],
+      [{ optimise: true, cutSpeed: 10 }, 'sheet.cutting.travelSpeed is missing'],
+      ['slow', 'sheet.cutting must be an object'],
+    ];
+    for (const [cutting, message] of cases) {
+      const file = validFile();
+      file.sheet.cutting = cutting;
+      expect(errorsOf(file).some(e => e.startsWith(message)), message).toBe(true);
+    }
+  });
+
   it('rejects an invalid sheet', () => {
     const file = validFile();
     file.sheet = { size: 'B7', width: -1, height: 297, gap: 2 };

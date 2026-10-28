@@ -1,8 +1,10 @@
 import { layoutCompartments } from '../geometry/compartments';
 import { labelProblem } from '../geometry/label';
+import { DEFAULT_CUTTING } from '../svg/cutting';
 import type {
   BoxMakerProject,
   BoxParams,
+  CuttingConfig,
   SheetConfig,
   ValidationResult,
 } from '../models/types';
@@ -55,6 +57,7 @@ export function defaultSheetConfig(): SheetConfig {
     height: 297,
     gap:    2,
     algorithm: 'maxrects',
+    cutting: { ...DEFAULT_CUTTING },
   };
 }
 
@@ -315,6 +318,21 @@ function readParams(r: Reader, src: Obj): BoxParams {
   return params;
 }
 
+/** The cutting settings were added after the first file format, so a file without them gets the defaults. */
+function readCutting(r: Reader, src: unknown): CuttingConfig {
+  if (src === undefined) return { ...DEFAULT_CUTTING };
+  if (!isObject(src)) {
+    r.errors.push(`sheet.cutting must be an object (got ${describe(src)})`);
+    return { ...DEFAULT_CUTTING };
+  }
+  r.unknownKeys(src, 'sheet.cutting', ['optimise', 'cutSpeed', 'travelSpeed']);
+  return {
+    optimise: r.boolean(src, 'optimise', 'sheet.cutting', DEFAULT_CUTTING.optimise),
+    cutSpeed: r.number(src, 'cutSpeed', 'sheet.cutting', DEFAULT_CUTTING.cutSpeed, { above: 0, max: 5000 }),
+    travelSpeed: r.number(src, 'travelSpeed', 'sheet.cutting', DEFAULT_CUTTING.travelSpeed, { above: 0, max: 5000 }),
+  };
+}
+
 function readSheet(r: Reader, src: unknown): SheetConfig {
   const d = defaultSheetConfig();
   if (src === undefined) {
@@ -325,8 +343,9 @@ function readSheet(r: Reader, src: unknown): SheetConfig {
     r.errors.push(`sheet must be an object (got ${describe(src)})`);
     return d;
   }
-  r.unknownKeys(src, 'sheet', ['size', 'width', 'height', 'gap', 'algorithm']);
+  r.unknownKeys(src, 'sheet', ['size', 'width', 'height', 'gap', 'algorithm', 'cutting']);
   return {
+    cutting: readCutting(r, src.cutting),
     // Files saved before there was a choice were packed with guillotine, so they keep it.
     algorithm: src.algorithm === undefined ? 'guillotine' : r.oneOf(src, 'algorithm', 'sheet', PACKING_ALGORITHMS, d.algorithm ?? 'maxrects'),
     size: r.oneOf(src, 'size', 'sheet', SHEET_SIZES, d.size),

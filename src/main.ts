@@ -3,7 +3,7 @@ import { applyJointToPanel } from './geometry/JointEngine';
 import { layoutCompartments, parseSizeList } from './geometry/compartments';
 import { labelIssue } from './geometry/label';
 import { BoxRenderer } from './rendering/BoxRenderer';
-import type { BoxParams, BoxGeometry, Panel, SheetConfig, SheetLayout } from './models/types';
+import type { BoxParams, BoxGeometry, CuttingConfig, Panel, SheetConfig, SheetLayout } from './models/types';
 import {
   defaultBoxParams,
   defaultSheetConfig,
@@ -19,7 +19,7 @@ import {
   SHEET_SIZES,
   type GroupedSheetLayout,
 } from './svg/BinPacker';
-import { downloadSVG, generateGroupedSVG, generateSVG } from './svg/SvgEngine';
+import { downloadSVG, generateGroupedSVG, generateSVG, layoutsCutStats } from './svg/SvgEngine';
 
 type ViewMode = '3d' | 'flat';
 
@@ -293,6 +293,13 @@ function validateSheetUI(): string[] {
   markFieldValid('shGap', gapOk);
   if (!gapOk) errors.push('Sheet gap must be 0 or greater');
 
+  for (const [id, name] of [['cutSpd', 'Cutting speed'], ['trvSpd', 'Travel speed']] as const) {
+    const v = Number(el<HTMLInputElement>(id).value);
+    const ok = Number.isFinite(v) && v > 0;
+    markFieldValid(id, ok);
+    if (!ok) errors.push(`${name} must be greater than 0`);
+  }
+
   const custom = el<HTMLSelectElement>('shSz').value === 'custom';
   for (const [id, name] of [['shW', 'Sheet width'], ['shH', 'Sheet height']] as const) {
     const v = Number(el<HTMLInputElement>(id).value);
@@ -316,6 +323,7 @@ function validateUI(showMessage = true): UIValidationResult {
   const params = readBoxParamsFromUI();
   const boxResult = validateParams(params);
   updateDividerInfo(params);
+  el<HTMLButtonElement>('btnTightGap').textContent = `Tight spacing (${suggestedGap(params.material.kerf)} mm)`;
   const sheetErrors = validateSheetUI();
   const errors = [...boxResult.errors, ...sheetErrors];
   const result: UIValidationResult = {
@@ -337,6 +345,14 @@ function validateUI(showMessage = true): UIValidationResult {
   return result;
 }
 
+function readCuttingFromUI(): CuttingConfig {
+  return {
+    optimise: el<HTMLElement>('togOpt').classList.contains('on'),
+    cutSpeed: Number(el<HTMLInputElement>('cutSpd').value),
+    travelSpeed: Number(el<HTMLInputElement>('trvSpd').value),
+  };
+}
+
 function readSheetFromUI(): SheetConfig {
   const config = defaultSheetConfig();
   config.gap = num('shGap');
@@ -344,6 +360,7 @@ function readSheetFromUI(): SheetConfig {
   const size = el<HTMLSelectElement>('shSz').value;
   config.size = size as SheetConfig['size'];
   config.algorithm = el<HTMLSelectElement>('shAlg').value as SheetConfig['algorithm'];
+  config.cutting = readCuttingFromUI();
 
   if (config.size === 'custom') {
     config.width = Number(el<HTMLInputElement>('shW').value);
@@ -448,6 +465,42 @@ function updateSummary(geometry: BoxGeometry, layout: SheetLayout | null): void 
   setText('sParts', String(geometry.panels.length));
   setText('sArea', `${geometry.totalMaterialArea.toFixed(1)} mm²`);
   setText('sEff', layout ? `${(layout.efficiency * 100).toFixed(1)}%` : '—');
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds.toFixed(1)} s`;
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)} min ${String(whole % 60).padStart(2, '0')} s`;
+}
+
+/** The sheets that are currently packed, whether as one layout or grouped by thickness. */
+function currentSheets(): SheetLayout[] {
+  if (currentGroupedLayouts) return currentGroupedLayouts.map(g => g.layout);
+  return currentLayout ? [currentLayout] : [];
+}
+
+/** Shows the cutting length, the travel with and without the ordering, and the estimated time. */
+function updateCuttingSummary(): void {
+  const sheets = currentSheets();
+  const settings = readCuttingFromUI();
+  if (!sheets.length || !currentParams || !(settings.cutSpeed > 0) || !(settings.travelSpeed > 0)) {
+    for (const id of ['sCut', 'sTrvL', 'sTrvO', 'sTime', 'sSaved']) setText(id, '\u2014');
+    return;
+  }
+
+  const s = layoutsCutStats(sheets, currentParams, settings);
+  const saved = s.totalSecondsListed - s.totalSecondsOptimised;
+  const travelCut = s.travelListed > 0 ? (1 - s.travelOptimised / s.travelListed) * 100 : 0;
+  setText('sCut', `${Math.round(s.cutLength)} mm`);
+  setText('sTrvL', `${Math.round(s.travelListed)} mm`);
+  setText('sTrvO', `${Math.round(s.travelOptimised)} mm (${travelCut > 0 ? '-' : ''}${travelCut.toFixed(0)}%)`);
+  setText('sTime', formatDuration(settings.optimise ? s.totalSecondsOptimised : s.totalSecondsListed));
+  setText('sSaved', `${formatDuration(Math.max(0, saved))} (${(s.totalSecondsListed > 0 ? (saved / s.totalSecondsListed) * 100 : 0).toFixed(1)}%)`);
+}
+
+/** The gap that "Tight spacing" sets: 2 x the kerf, but at least 1 mm so a thin web of material stays between parts. */
+function suggestedGap(kerf: number): number {
+  return Math.max(1, Math.round(2 * (Number.isFinite(kerf) ? kerf : 0) * 10) / 10);
 }
 
 function renderPartsList(panels: Panel[]): void {
@@ -582,6 +635,7 @@ function runPacking(): void {
     setValidMessage(anyOverflow ? 'Some panels overflow: increase sheet size or gap' : 'All panels fit on the sheet', anyOverflow ? 'info' : 'ok');
     setActionEnabled('btnSVG', true);
     setStatusTone(anyOverflow ? 'processing' : 'ready');
+    updateCuttingSummary();
     return;
   }
 
@@ -603,6 +657,7 @@ function runPacking(): void {
     setStatusTone('ready');
   }
   setActionEnabled('btnSVG', true);
+  updateCuttingSummary();
 }
 
 function doExportSVG(): void {
@@ -612,9 +667,12 @@ function doExportSVG(): void {
     return;
   }
 
+  // The cutting settings may have been changed since packing, so the export uses the ones on screen.
+  const cutting = readCuttingFromUI();
+  const withCutting = (layout: SheetLayout): SheetLayout => ({ ...layout, config: { ...layout.config, cutting } });
   const svg = currentGroupedLayouts
-    ? generateGroupedSVG(currentGroupedLayouts, currentParams)
-    : generateSVG(currentLayout!, currentParams);
+    ? generateGroupedSVG(currentGroupedLayouts.map(g => ({ ...g, layout: withCutting(g.layout) })), currentParams)
+    : generateSVG(withCutting(currentLayout!), currentParams);
   downloadSVG(svg);
   const parts = currentGroupedLayouts
     ? currentGroupedLayouts.reduce((s, g) => s + g.layout.placed.length, 0)
@@ -726,6 +784,10 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
 
   el<HTMLSelectElement>('shSz').value = sheet.size;
   el<HTMLSelectElement>('shAlg').value = sheet.algorithm ?? 'guillotine';
+  const cutting = sheet.cutting ?? { optimise: true, cutSpeed: 10, travelSpeed: 200 };
+  el<HTMLInputElement>('cutSpd').value = String(cutting.cutSpeed);
+  el<HTMLInputElement>('trvSpd').value = String(cutting.travelSpeed);
+  toggleOn(el<HTMLElement>('togOpt'), cutting.optimise);
   el<HTMLInputElement>('shGap').value = String(sheet.gap);
   el<HTMLInputElement>('shW').value = String(sheet.width);
   el<HTMLInputElement>('shH').value = String(sheet.height);
@@ -873,6 +935,28 @@ function initUI(): void {
   });
 
   el<HTMLButtonElement>('btnFitBox').addEventListener('click', fitBoxToCompartments);
+
+  el<HTMLButtonElement>('btnTightGap').addEventListener('click', () => {
+    const gap = suggestedGap(Number(el<HTMLInputElement>('kerf').value));
+    el<HTMLInputElement>('shGap').value = String(gap);
+    refreshValidation();
+    scheduleLiveUpdate('sheet');
+    toast(`Gap set to ${gap} mm`, 'info');
+  });
+
+  // The speeds and the ordering only change the figures and the order in the file, so nothing is packed again.
+  for (const id of ['cutSpd', 'trvSpd']) {
+    el<HTMLElement>(id).addEventListener('input', () => {
+      refreshValidation();
+      updateCuttingSummary();
+    });
+  }
+  el<HTMLElement>('togOptRow').addEventListener('click', () => {
+    const on = !el<HTMLElement>('togOpt').classList.contains('on');
+    toggleOn(el<HTMLElement>('togOpt'), on);
+    updateCuttingSummary();
+    toast(on ? 'Cut order optimised' : 'Cut order as listed', 'info');
+  });
 
   el<HTMLButtonElement>('btnDefaults').addEventListener('click', () => {
     applyProjectToUI({ params: defaultBoxParams(), sheet: defaultSheetConfig() });
