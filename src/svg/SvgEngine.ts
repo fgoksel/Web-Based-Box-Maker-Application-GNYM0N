@@ -1,6 +1,7 @@
-import type { SheetLayout, BoxParams, Point2D } from '../models/types';
+import type { SheetLayout, BoxParams, Point2D, PlacedPanel, CuttingConfig } from '../models/types';
 import type { GroupedSheetLayout } from './BinPacker';
 import { offsetOutline, translateOutline } from '../geometry/outline';
+import { DEFAULT_CUTTING, contourLength, cutStats, listedPlan, optimisedPlan, planTravel, rotateContour, type Contour, type CutStats } from './cutting';
 
 /**
  * The outline as it should be cut. The laser removes kerf/2 on each side of the path, so the path
@@ -65,17 +66,39 @@ function svgColor(idx: number): string {
   return SVG_COLORS[idx % SVG_COLORS.length];
 }
 
-function consolidatePaths(results: { colorGroup: string; pathD: string }[]): string {
-  const byColor = new Map<string, string[]>();
-  for (const r of results) {
-    if (!byColor.has(r.colorGroup)) byColor.set(r.colorGroup, []);
-    byColor.get(r.colorGroup)!.push(r.pathD);
+/**
+ * The outline of a placed part as it lies on the sheet: turned if the packer turned it, moved by the
+ * kerf and fit compensation (unless `compensate` is false, to get the nominal shape), and placed at its
+ * position. Points that lie on a straight line are dropped.
+ */
+export function placedContour(pl: PlacedPanel, params: BoxParams, compensate = true): Contour {
+  let outline = pl.panel.outline;
+  if (pl.rotated) {
+    outline = outline.map(pt => ({
+      x: pl.panel.panelHeight - pt.y,
+      y: pt.x,
+    }));
   }
-  let svg = '';
-  for (const [color, paths] of byColor) {
-    svg += `  <path fill="none" stroke="${color}" stroke-width="0.15" d="${paths.join(' ')}"/>\n`;
+  if (compensate) outline = cutOutline(outline, params.material.kerf, params.material.fitClearance);
+  return removeCollinear(outline).map(pt => ({ x: pt.x + pl.x, y: pt.y + pl.y }));
+}
+
+/** The outlines of every part that fits on the sheet, in the order the parts are listed. */
+export function layoutContours(layout: SheetLayout, params: BoxParams, compensate = true): Contour[] {
+  return layout.placed.filter(p => !p.overflow).map(pl => placedContour(pl, params, compensate));
+}
+
+/** Cutting figures for one or more sheets, added together (the head starts at the origin of each sheet). */
+export function layoutsCutStats(layouts: SheetLayout[], params: BoxParams, settings: CuttingConfig): CutStats {
+  const total: CutStats = {
+    parts: 0, cutLength: 0, travelListed: 0, travelOptimised: 0, cutSeconds: 0,
+    travelSecondsListed: 0, travelSecondsOptimised: 0, totalSecondsListed: 0, totalSecondsOptimised: 0,
+  };
+  for (const layout of layouts) {
+    const s = cutStats(layoutContours(layout, params), settings);
+    for (const key of Object.keys(total) as Array<keyof CutStats>) total[key] += s[key];
   }
-  return svg;
+  return total;
 }
 
 export function generateSVG(
@@ -89,22 +112,20 @@ export function generateSVG(
   const active   = placed.filter(p => !p.overflow);
   const overflow = placed.filter(p => p.overflow);
 
-  const pathResults = active.map((pl, idx) => {
-    let outline = pl.panel.outline;
-    if (pl.rotated) {
-      outline = outline.map(pt => ({
-        x: pl.panel.panelHeight - pt.y,
-        y: pt.x,
-      }));
-    }
-    outline = cutOutline(outline, params.material.kerf, params.material.fitClearance);
-    return {
-      colorGroup: svgColor(idx),
-      pathD: buildPathD(outline, pl.x, pl.y),
-    };
-  });
-
-  const paths = consolidatePaths(pathResults);
+  // One path per part, written in the order the parts are cut. Most cutter software follows the order of
+  // the paths in the file, so the order chosen here is the order the head will move in.
+  const contours = active.map(pl => placedContour(pl, params));
+  const cutting = config.cutting ?? DEFAULT_CUTTING;
+  const plan = cutting.optimise ? optimisedPlan(contours) : listedPlan(contours);
+  const paths = plan.order
+    .map((ci, k) => {
+      const pl = active[ci];
+      const d = buildPathD(rotateContour(contours[ci], plan.entry[k]), 0, 0);
+      return `  <path id="part-${pl.panel.sequenceNumber}" fill="none" stroke="${svgColor(pl.panel.sequenceNumber - 1)}" stroke-width="0.15" d="${d}"/>\n`;
+    })
+    .join('');
+  const cutLength = contours.reduce((sum, c) => sum + contourLength(c), 0);
+  const travel = planTravel(contours, plan);
 
   // Engraved text goes in its own group so the cutter software can give it a separate (engrave) setting.
   // It is placed like the cut path: moved by the same compensation and turned with a rotated panel.
@@ -127,10 +148,10 @@ export function generateSVG(
     ? `  <g id="engrave" fill="#1d4ed8" stroke="none" font-family="Arial, Helvetica, sans-serif">\n  ${engraved.join('\n  ')}\n  </g>\n`
     : '';
 
-  const labels = active.map((pl, idx) => {
+  const labels = active.map(pl => {
     const pw  = pl.rotated ? pl.panel.panelHeight : pl.panel.panelWidth;
     const ph  = pl.rotated ? pl.panel.panelWidth  : pl.panel.panelHeight;
-    const col = svgColor(idx);
+    const col = svgColor(pl.panel.sequenceNumber - 1);
     // On a panel with engraved text the part number moves to the bottom so the two do not overlap.
     const numberY = pl.panel.engrave ? Math.max(ph / 2, ph - 8) : ph / 2;
     const cx  = f(pl.x + pw / 2);
@@ -151,7 +172,7 @@ export function generateSVG(
     : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<!-- Web-Based Box Maker | Author: Ferhat Göksel | Sheet:${sw}x${sh}mm | Parts:${active.length}/${placed.length} | Efficiency:${(efficiency * 100).toFixed(1)}% | Kerf:${params.material.kerf}mm | Fit clearance:${params.material.fitClearance}mm | ${new Date().toISOString()} -->
+<!-- Web-Based Box Maker | Author: Ferhat Göksel | Sheet:${sw}x${sh}mm | Parts:${active.length}/${placed.length} | Efficiency:${(efficiency * 100).toFixed(1)}% | Kerf:${params.material.kerf}mm | Fit clearance:${params.material.fitClearance}mm | Cut:${f(cutLength)}mm | Travel:${f(travel)}mm | Order:${cutting.optimise ? 'optimised' : 'listed'} | ${new Date().toISOString()} -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${sw + 20} ${sh + 20}" width="${sw}mm" height="${sh}mm">
   <rect x="0" y="0" width="${f(sw)}" height="${f(sh)}" fill="#fafaf8" stroke="#cccccc" stroke-width="0.4"/>
 ${overflowComment}${paths}${engraveGroup}  <g id="labels">

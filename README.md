@@ -35,7 +35,8 @@ Everything runs in the browser. There is no server, no database and no account.
 | 3D preview | Rotatable, zoomable model with numbered parts. Wireframe, explode and reset-camera controls. Clicking a part in the list highlights it. |
 | Sheet layout | Panels are packed onto A4, A3, A2, A1 or a custom sheet size, with a configurable gap, using one of three packing methods (MaxRects, Skyline, Guillotine). Overflowing panels are reported. Panels can optionally be grouped by material thickness. |
 | Engraved label | A line of text on any face (front, back, left, right, bottom or the lid top), shown on the 3D model and written to the SVG as a separate engrave layer. |
-| SVG export | Cut paths with part numbers, redundant points removed, kerf compensation applied. |
+| Cutting time | The parts are written to the SVG in an order that keeps the laser head's travel short, and each outline starts at its nearest corner. The application shows the cutting length, the travel with and without that ordering, and an estimated time from the speeds you enter. *Tight spacing* sets a small gap between parts. |
+| SVG export | One cut path per part, in cutting order, with part numbers, redundant points removed and kerf compensation applied. |
 | Save and load | The whole design is saved to and loaded from a JSON file. |
 | Live update | Once a box has been generated, changing a value rebuilds the model (and the sheet layout) automatically after a short pause. This can be switched off. |
 | Validation | Invalid input is rejected with a message and a highlighted field. |
@@ -50,7 +51,7 @@ You need **Node.js 20 or newer**.
 npm install      # install dependencies (once)
 npm run dev      # start the app, then open the printed address (http://localhost:5173)
 npm test         # run the automated tests
-npm run benchmark  # compare the packing methods on 300 random boxes
+npm run benchmark  # compare the packing methods and the cutting time on 300 random boxes
 npm run build    # type-check and build a static version into dist/
 ```
 
@@ -67,6 +68,8 @@ The build output in `dist/` is a plain static website that can be hosted anywher
 5. Turn on **Separate by Thickness** if you cut different thicknesses from different sheets.
 6. **Export SVG** to get the cut file.
 7. **Export JSON** saves the design. **Import JSON** loads one back.
+
+**Cutting time.** After packing, the *Cutting* section on the right shows the length that will be cut, the travel of the head without cutting for the parts in their listed order and in the optimised order, and an estimated time. The time uses the *Cutting Speed* and *Travel Speed* you type; the starting values (10 and 200 mm/s) are only typical figures, so enter your machine's own. *Optimise cut order* decides the order in the exported SVG. **Tight spacing** next to the packing method sets the gap between parts to twice the kerf, at least 1 mm, which keeps a thin web of material between them; you can type any other gap.
 
 **Engraved label.** Switch *Engrave Text* on, type the text, pick the face and the text height. The text is centred on that face and shown on the model. It is checked against the face: it must fit within 90% of the face width and height, and a label on the top needs the lid.
 
@@ -97,6 +100,7 @@ src/
   svg/
     BinPacker.ts            Sheet packing and the 2D preview
     packers.ts              The three packing methods (MaxRects, Skyline, Guillotine)
+    cutting.ts              Cut order, travel and time estimate
     SvgEngine.ts            SVG generation and download
   utils/ProjectIO.ts        Default values, JSON export and import
   ui/style.css              Styling
@@ -212,9 +216,36 @@ The methods win different measures. Skyline is best when the sheet length is ope
 
 The label is stored on the panel of the chosen face, together with which side of the panel is the outside. In the 3D view it is drawn on a thin plane just outside that face, turned so it reads from outside. In the SVG it goes into its own `<g id="engrave">` group, centred on the panel body (not the bounding box, so tabs do not shift it), turned with the panel when the packer rotates it, and moved by the same kerf compensation as the cut path. The part number moves to the bottom of the panel so the two do not overlap. Text is written as SVG `<text>`; some cutter software needs it converted to outlines before engraving. The engraving appears on whichever side of the sheet faces up when cutting, so lay the sheet with the outside face up.
 
-### 6. SVG export (`SvgEngine`)
+### 6. Cutting order and time (`cutting.ts`)
 
-Each placed outline is rotated if needed, kerf-compensated, and written as an SVG path using `H` and `V` commands for straight segments. Collinear points are removed and paths are merged by colour, which keeps the file small. Each panel gets its sequence number and name as a label. The grouped export stacks the thickness groups in one document.
+A laser cuts each closed outline in one go and then moves to the next with the beam off. The length that is cut is fixed by the parts, but the length of those moves, the *travel*, depends on the order the parts are cut in and on the corner each outline is started at. The head is assumed to start at the sheet's origin. Every part here is one closed outline without holes (the slots are notches in the edge), so there is nothing to cut inside a part first.
+
+The order is found in three steps:
+
+1. **Nearest neighbour:** start at the origin and always go to the outline that is nearest to where the head is.
+2. **2-opt:** keep reversing stretches of the order while that shortens the travel.
+3. **Start corners:** for the final order, choose the corner each outline is started at so that the total travel is as small as possible (dynamic programming over the corners; an outline ends where it starts).
+
+The result is never longer than the listed order. The time is the cutting length divided by the cutting speed plus the travel divided by the travel speed; it ignores acceleration, piercing and engraving.
+
+#### What the ordering and the spacing save
+
+`npm run benchmark` also runs the same 300 random boxes through the cutting figures (a 420 mm wide strip, 10 mm/s cutting, 200 mm/s travel):
+
+| Gap between parts (MaxRects) | Strip use | Travel, listed order | Travel, optimised | Travel saved | Job time | Time saved by the ordering |
+|---|---|---|---|---|---|---|
+| 2 mm | 70.3% | 1530 mm | 599 mm | 60.9% | 8.0 min | 0.9% |
+| 1 mm | 71.7% | 1534 mm | 589 mm | 61.6% | 8.0 min | 0.9% |
+| 0.5 mm | 71.7% | 1537 mm | 584 mm | 62.0% | 8.0 min | 0.9% |
+
+- **The ordering cuts the travel by about 60%, but the job time by only about 1%.** A box has about 4.8 m of cut at 10 mm/s, so cutting takes minutes and the head's moves take seconds. The ordering is worth having, but it is not where the time goes.
+- **A smaller gap changes little.** The packers already place rectangles against each other, so going from 2 mm to 0.5 mm gains about one percentage point of sheet use and a few millimetres of travel. It helps most on the sheet, not on the time.
+- **The packing method matters more than the gap.** At a 1 mm gap, Skyline uses 81.0% of the strip against 71.7% for MaxRects, and Guillotine and Skyline both end with about 575 mm of optimised travel against 589 mm for MaxRects. MaxRects is still the default because it fits more boxes on a fixed sheet (see the packing comparison above).
+- **Sharing cut lines is the bigger lever.** With parts touching (a gap of 0), on average 13.7% of the cut length lies exactly on an edge of another part. Cutting such a line once instead of twice could save up to that share of the cutting time, far more than the travel. This is an upper bound, and it is not implemented: it also needs the kerf handled along the shared line.
+
+### 7. SVG export (`SvgEngine`)
+
+Each placed outline is rotated if needed, kerf-compensated, started at its planned corner, and written as an SVG path using `H` and `V` commands for straight segments. Collinear points are removed. There is one path per part (`id="part-N"`), written in cutting order, because most cutter software follows the order of the paths in the file. Each part keeps one colour on its path and its number. Each panel also gets its sequence number and name as a label. The comment at the top of the file records the cut length, the travel and the order used. The grouped export stacks the thickness groups in one document, with the cutting order worked out for each sheet.
 
 ---
 
@@ -231,7 +262,7 @@ Each placed outline is rotated if needed, kerf-compensated, and written as an SV
     "lid":     { "enabled": false, "height": 12, "tolerance": 0.2 },
     "label":   { "enabled": false, "text": "", "face": "front", "fontSize": 8 }
   },
-  "sheet": { "size": "A3", "width": 420, "height": 297, "gap": 2, "algorithm": "maxrects" }
+  "sheet": { "size": "A3", "width": 420, "height": 297, "gap": 2, "algorithm": "maxrects", "cutting": { "optimise": true, "cutSpeed": 10, "travelSpeed": 200 } }
 }
 ```
 
@@ -271,10 +302,10 @@ An imported file is validated field by field before anything is applied. All pro
 
 ```bash
 npm test             # all tests
-npm run benchmark    # only the packing comparison, with its table printed
+npm run benchmark    # only the two benchmarks, with their tables printed
 ```
 
-There are about 150 automated tests. They cover:
+There are about 180 automated tests. They cover:
 
 - **Geometry:** internal dimensions, panel list, lid panels, grounding of the bottom and walls, dividers on the floor, and divider positions for equal and exact compartment sizes.
 - **Joints:** tab sizing and minimum finger width, outlines without invalid numbers, normalisation, repeatable results, flat style, outline helpers, and the divider slot sizes.
@@ -283,6 +314,7 @@ There are about 150 automated tests. They cover:
 - **Fit clearance:** a slot ends up exactly the clearance wider than its tab once the laser kerf is removed.
 - **Project files:** valid files round-trip exactly, and unreadable input, wrong types, out-of-range values, boxes that cannot be built, unknown fields and a `__proto__` key are all handled.
 - **Packing:** each of the three methods keeps every part inside the sheet, without overlaps and with the gap, on random parts and on random boxes. The benchmark table is printed by `npm run benchmark`.
+- **Cutting:** the length of an outline, travel for hand-made cases with known answers, start corners checked against a brute-force search, the guarantee that the optimised order never needs more travel than the listed one (on 150 random sets of parts), the time arithmetic, and shared edges. The SVG is checked to hold one path per part in the planned order, started at the planned corner, with the same total cut length either way, and with matching colours.
 - **SVG:** a valid document with paths, and the overflow comment.
 
 ### Random-box tests
@@ -323,6 +355,8 @@ After the first version, the joints were reworked so that mating edges are compl
 - Dividers interlock with each other but are not fixed to the walls or the base plate, which would need slots in the middle of those panels.
 - Engraved text is one line, centred on its face. Several lines, images and free positioning are not supported.
 - Packing uses heuristics and is not guaranteed to be optimal, and parts are packed as their bounding rectangles, so a part's notches are not filled with smaller parts.
+- Cut lines are not shared between touching parts. The benchmark shows this could save up to about 14% of the cut length.
+- The time estimate uses the speeds you enter and ignores acceleration, piercing and engraving, and the head is assumed to start at the sheet's origin. The cutting order is only followed if the cutter software cuts paths in file order.
 - Only rectangular boxes are supported.
 
 ---

@@ -255,6 +255,7 @@
                                 <option value="guillotine">Guillotine</option>
                             </select>
                         </div>
+                        <button id="btnTightGap" style="width:100%;margin-top:8px" title="Put the parts close together, so the laser has less distance to travel between them and less sheet is used. The gap is set to a small value based on the kerf, which you can change.">Tight spacing</button>
                         <div class="sub" id="customSheetSub">
                             <div class="grid2">
                                 <div class="field">
@@ -301,6 +302,46 @@
                             <div class="summary-row">
                                 <span>Sheet efficiency</span>
                                 <span id="sEff">—</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-title">Cutting</div>
+                        <div class="grid2">
+                            <div class="field">
+                                <label>Cutting Speed (mm/s)</label>
+                                <input type="number" id="cutSpd" value="10" min="0.1" step="0.5" autocomplete="off" title="How fast your laser cuts this material. 10 mm/s is only a typical figure for thin plywood, so set your own." />
+                            </div>
+                            <div class="field">
+                                <label>Travel Speed (mm/s)</label>
+                                <input type="number" id="trvSpd" value="200" min="1" step="10" autocomplete="off" title="How fast the head moves without cutting. 200 mm/s is only a typical figure, so set your own." />
+                            </div>
+                        </div>
+                        <div class="toggle-row" id="togOptRow" style="margin-top:10px" title="Cut the parts in an order that keeps the head's travel short, and start each outline at its nearest corner">
+                            <span>Optimise cut order</span>
+                            <div class="toggle on" id="togOpt"></div>
+                        </div>
+                        <div class="summary-card" style="margin-top:10px">
+                            <div class="summary-row">
+                                <span>Cut length</span>
+                                <span id="sCut">&mdash;</span>
+                            </div>
+                            <div class="summary-row">
+                                <span>Travel, listed order</span>
+                                <span id="sTrvL">&mdash;</span>
+                            </div>
+                            <div class="summary-row">
+                                <span>Travel, optimised</span>
+                                <span id="sTrvO">&mdash;</span>
+                            </div>
+                            <div class="summary-row">
+                                <span>Estimated time</span>
+                                <span id="sTime">&mdash;</span>
+                            </div>
+                            <div class="summary-row">
+                                <span>Saved by ordering</span>
+                                <span id="sSaved">&mdash;</span>
                             </div>
                         </div>
                     </div>

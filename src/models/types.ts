@@ -159,6 +159,16 @@ export type StandardSheetSize = 'A4' | 'A3' | 'A2' | 'A1' | 'custom';
 
 export type PackingAlgorithm = 'guillotine' | 'maxrects' | 'skyline';
 
+/** How the laser is assumed to work, used to order the cuts and estimate the time. */
+export interface CuttingConfig {
+  /** Order the parts so the head travels as little as possible; otherwise they are cut in the order they are listed. */
+  optimise: boolean;
+  /** Cutting speed in mm per second. */
+  cutSpeed: number;
+  /** Speed of the head when it moves without cutting, in mm per second. */
+  travelSpeed: number;
+}
+
 export interface SheetConfig {
   size: StandardSheetSize;
   width: number;
@@ -166,6 +176,8 @@ export interface SheetConfig {
   gap: number;
   /** How panels are arranged on the sheet. Files without it use guillotine. */
   algorithm?: PackingAlgorithm;
+  /** Cut order and speeds. Files without it use the defaults. */
+  cutting?: CuttingConfig;
 }
 
 export interface PlacedPanel {

@@ -135,7 +135,7 @@ export function renderSheetPreview(
   ctx.lineWidth   = 1.5;
   ctx.strokeRect(ox, oy, sw * sc, sh * sc);
 
-  placed.forEach((pl, idx) => {
+  placed.forEach(pl => {
     if (pl.overflow) return;
     const pw  = pl.rotated ? pl.panel.panelHeight : pl.panel.panelWidth;
     const ph  = pl.rotated ? pl.panel.panelWidth  : pl.panel.panelHeight;
@@ -143,7 +143,7 @@ export function renderSheetPreview(
     const py  = oy + pl.y * sc;
     const pW  = pw * sc;
     const pH  = ph * sc;
-    const col = PREVIEW_COLORS[idx % PREVIEW_COLORS.length];
+    const col = PREVIEW_COLORS[(pl.panel.sequenceNumber - 1) % PREVIEW_COLORS.length];
     const isHL = pl.panel.sequenceNumber === highlightSeq;
 
     // Trace the real cut outline (with its fingers), rotated like the SVG export.
