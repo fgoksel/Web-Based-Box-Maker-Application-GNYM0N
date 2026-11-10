@@ -103,6 +103,7 @@ src/
     packers.ts              The three packing methods (MaxRects, Skyline, Guillotine)
     partSignature.ts        Recognises parts of equal shape and groups them
     layoutSearch.ts         Tries many placement orders and keeps the best layout
+    rectilinear.ts          Exact rectangle decomposition of outlines and a part-against-part clearance test
     cutting.ts              Cut order, travel and time estimate
     SvgEngine.ts            SVG generation and download
   utils/ProjectIO.ts        Default values, JSON export and import
@@ -225,6 +226,16 @@ Compared with packing once, on the same 300 random boxes (`npm run benchmark`, 1
 - Most of the gain comes early: 10 orders give 1294 cm², 30 give 1283, 100 give 1275 and 500 give 1268, at 0.9, 2.1, 6 and 28 ms per box.
 - The packers treat parts as rectangles, so the gain comes from better orders and from choosing the best method for each box, not from fitting parts into each other's notches.
 
+#### Why parts are still packed as rectangles
+
+Packing by the real outline, so that a finger of one part could sit in a slot of another, was assessed and not adopted. Every outline here has only horizontal and vertical edges, so `rectilinear.ts` can cut it into rectangles exactly and test two parts for the gap by testing rectangles. With that test a gravity placer was tried against the same placer using bounding rectangles, on 30 of the random boxes (it is a prototype, run once, and is not part of the application):
+
+- The empty space inside the bounding boxes is 3.7% of their area, so that is the most that could ever be gained.
+- Outlines did interlock: in 16 of the 30 boxes some pair of parts lay closer than the gap by bounding box but not by outline. But the strip came out *taller* on average with outlines (350.5 mm against 342.3 mm at a 2 mm gap, 346.6 against 333.4 at 0.5 mm), better in 3 to 4 of the 30 boxes and worse in 7 to 8. Using a little pocket space does not make a greedy placer find a better overall arrangement.
+- The pockets are finger gaps and slots, of the same width as the fingers that fill them. A finger entering one of them needs the gap on both sides, so only a narrower finger from a wider pocket fits, and the area that can be recovered is a few millimetres deep.
+
+The tested decomposition is kept because shared cut lines need to know where the edges of a part lie.
+
 #### How the methods compare
 
 `npm run benchmark` packs 300 random boxes (the same ones every run: widths 60 to 300 mm, depths 50 to 250 mm, heights 30 to 150 mm, 2 to 6 mm material, about 40% with a lid and half with dividers) with each method and prints this table. The times depend on the computer; the other columns do not.
@@ -334,7 +345,7 @@ npm test             # all tests
 npm run benchmark    # only the three benchmarks, with their tables printed
 ```
 
-There are about 240 automated tests. They cover:
+There are about 260 automated tests. They cover:
 
 - **Geometry:** internal dimensions, panel list, lid panels, grounding of the bottom and walls, dividers on the floor, and divider positions for equal and exact compartment sizes.
 - **Joints:** tab sizing and minimum finger width, outlines without invalid numbers, normalisation, repeatable results, flat style, outline helpers, and the divider slot sizes.
@@ -346,6 +357,7 @@ There are about 240 automated tests. They cover:
 - **Cutting:** the length of an outline, travel for hand-made cases with known answers, start corners checked against a brute-force search, the guarantee that the optimised order never needs more travel than the listed one (on 150 random sets of parts), the time arithmetic, and shared edges. The SVG is checked to hold one path per part in the planned order, started at the planned corner, with the same total cut length either way, and with matching colours.
 - **Equal parts:** the same shape from a different starting vertex, direction or position gives the same signature; a 0.01 mm difference, another thickness or different engraving does not; quarter turns, half turns and mirror images only match when allowed and never for engraved parts; and on the default, lid, divider and 30 random boxes every panel is in exactly one group, whatever order the panels are given in.
 - **Layout search:** the scoring on small cases with known answers; the candidate orders (the first is packing once, no repeats, only permutations, the budget is respected, the same every time); and, for the default, lid and divider boxes with each method on A4, A3 and A2, on sheets with another gap, on a sheet that is too small, on each thickness group and on 25 random boxes, that the result is never worse than packing once, keeps the margins and the gap, lists every panel, and is the same on every run. It also checks that the time limit still gives a valid layout and that the search finds a fit that packing once misses.
+- **Rectangle decomposition:** a rectangle stays one rectangle, an L and a U are cut exactly, the result does not depend on the start vertex, direction or position of the outline, spikes and repeated points are ignored, outlines with a slanted edge are refused, and for 150 random column-shaped outlines and every panel of 120 random boxes the rectangles have the same area as the outline, do not overlap and agree with the outline at sample points. Turning and mirroring keep the area; the clearance test accepts exactly one gap apart, rejects less, is symmetric, agrees with a brute-force check, and lets a thin part into the slot of a real divider.
 - **SVG:** a valid document with paths, and the overflow comment.
 
 ### Random-box tests
