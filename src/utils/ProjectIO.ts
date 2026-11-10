@@ -6,6 +6,7 @@ import type {
   BoxMakerProject,
   BoxParams,
   CuttingConfig,
+  CommonLineConfig,
   LayoutSearchConfig,
   SheetConfig,
   ValidationResult,
@@ -61,6 +62,7 @@ export function defaultSheetConfig(): SheetConfig {
     algorithm: 'maxrects',
     cutting: { ...DEFAULT_CUTTING },
     search: { ...DEFAULT_SEARCH },
+    commonLine: { enabled: false },
   };
 }
 
@@ -350,6 +352,17 @@ function readSearch(r: Reader, src: unknown): LayoutSearchConfig {
   };
 }
 
+/** Common-line cutting was added after the first file format, so a file without it cuts every outline on its own. */
+function readCommonLine(r: Reader, src: unknown): CommonLineConfig {
+  if (src === undefined) return { enabled: false };
+  if (!isObject(src)) {
+    r.errors.push(`sheet.commonLine must be an object (got ${describe(src)})`);
+    return { enabled: false };
+  }
+  r.unknownKeys(src, 'sheet.commonLine', ['enabled']);
+  return { enabled: r.boolean(src, 'enabled', 'sheet.commonLine', false) };
+}
+
 function readSheet(r: Reader, src: unknown): SheetConfig {
   const d = defaultSheetConfig();
   if (src === undefined) {
@@ -360,10 +373,11 @@ function readSheet(r: Reader, src: unknown): SheetConfig {
     r.errors.push(`sheet must be an object (got ${describe(src)})`);
     return d;
   }
-  r.unknownKeys(src, 'sheet', ['size', 'width', 'height', 'gap', 'algorithm', 'cutting', 'search']);
+  r.unknownKeys(src, 'sheet', ['size', 'width', 'height', 'gap', 'algorithm', 'cutting', 'search', 'commonLine']);
   return {
     cutting: readCutting(r, src.cutting),
     search: readSearch(r, src.search),
+    commonLine: readCommonLine(r, src.commonLine),
     // Files saved before there was a choice were packed with guillotine, so they keep it.
     algorithm: src.algorithm === undefined ? 'guillotine' : r.oneOf(src, 'algorithm', 'sheet', PACKING_ALGORITHMS, d.algorithm ?? 'maxrects'),
     size: r.oneOf(src, 'size', 'sheet', SHEET_SIZES, d.size),

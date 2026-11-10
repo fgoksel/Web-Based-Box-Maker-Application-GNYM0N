@@ -35,6 +35,7 @@ Everything runs in the browser. There is no server, no database and no account.
 | 3D preview | Rotatable, zoomable model with numbered parts. Wireframe, explode and reset-camera controls. Clicking a part in the list highlights it. |
 | Sheet layout | Panels are packed onto A4, A3, A2, A1 or a custom sheet size, with a configurable gap, using one of three packing methods (MaxRects, Skyline, Guillotine). Overflowing panels are reported. Panels can optionally be grouped by material thickness. |
 | Layout search | An option that tries many placement orders with every packing method and keeps the tightest layout. It is never worse than packing once, and on 300 random boxes it needs about 5% less sheet. |
+| Common-line cutting | An option that spaces the parts by the kerf so that where two parts touch, their cut outlines lie on one another and that line is cut once. On 300 random boxes about 15% of the cut length is cut once and the estimated job time falls by about 14 to 16%. |
 | Engraved label | A line of text on any face (front, back, left, right, bottom or the lid top), shown on the 3D model and written to the SVG as a separate engrave layer. |
 | Cutting time | The parts are written to the SVG in an order that keeps the laser head's travel short, and each outline starts at its nearest corner. The application shows the cutting length, the travel with and without that ordering, and an estimated time from the speeds you enter. *Tight spacing* sets a small gap between parts. |
 | SVG export | One cut path per part, in cutting order, with part numbers, redundant points removed and kerf compensation applied. |
@@ -72,6 +73,8 @@ The build output in `dist/` is a plain static website that can be hosted anywher
 
 **Cutting time.** After packing, the *Cutting* section on the right shows the length that will be cut, the travel of the head without cutting for the parts in their listed order and in the optimised order, and an estimated time. The time uses the *Cutting Speed* and *Travel Speed* you type; the starting values (10 and 200 mm/s) are only typical figures, so enter your machine's own. *Optimise cut order* decides the order in the exported SVG. **Tight spacing** next to the packing method sets the gap between parts to twice the kerf, at least 1 mm, which keeps a thin web of material between them; you can type any other gap.
 
+**Common-line cutting.** Switch *Common-line cutting* on in the sheet settings to cut a line once where two parts touch. The parts are then spaced by the kerf (less half the fit clearance) instead of by the gap, so that their cut outlines lie on one another, and *Gap* becomes the margin at the edge of the sheet. The Cutting section shows how much is cut once, and the exported SVG holds the unique cut lines (`cut-1`, `cut-2`, ...) instead of one path per part. If two outlines ever overlap, or nothing can be shared, the file is written as usual and says so in its header comment.
+
 **Engraved label.** Switch *Engrave Text* on, type the text, pick the face and the text height. The text is centred on that face and shown on the model. It is checked against the face: it must fit within 90% of the face width and height, and a label on the top needs the lid.
 
 **Compartment sizes.** With dividers on, leave *Column Widths* and *Row Depths* empty for equal compartments, or type exact sizes such as `40, 30, 50` (columns run left to right, rows back to front). The sizes plus the divider thicknesses must add up to the inside of the box. If they don't, the message says what inside size is needed, and **Fit box size to compartments** sets the box width and depth for you. A small summary under the fields lists the resulting compartment sizes.
@@ -103,6 +106,7 @@ src/
     packers.ts              The three packing methods (MaxRects, Skyline, Guillotine)
     partSignature.ts        Recognises parts of equal shape and groups them
     layoutSearch.ts         Tries many placement orders and keeps the best layout
+    commonLine.ts           Shared cut lines, the unique cutting paths and their order
     rectilinear.ts          Exact rectangle decomposition of outlines and a part-against-part clearance test
     cutting.ts              Cut order, travel and time estimate
     SvgEngine.ts            SVG generation and download
@@ -281,9 +285,37 @@ The result is never longer than the listed order. The time is the cutting length
 - **The ordering cuts the travel by about 60%, but the job time by only about 1%.** A box has about 4.8 m of cut at 10 mm/s, so cutting takes minutes and the head's moves take seconds. The ordering is worth having, but it is not where the time goes.
 - **A smaller gap changes little.** The packers already place rectangles against each other, so going from 2 mm to 0.5 mm gains about one percentage point of sheet use and a few millimetres of travel. It helps most on the sheet, not on the time.
 - **The packing method matters more than the gap.** At a 1 mm gap, Skyline uses 81.0% of the strip against 71.7% for MaxRects, and Guillotine and Skyline both end with about 575 mm of optimised travel against 589 mm for MaxRects. MaxRects is still the default because it fits more boxes on a fixed sheet (see the packing comparison above).
-- **Sharing cut lines is the bigger lever.** With parts touching (a gap of 0), on average 13.7% of the cut length lies exactly on an edge of another part. Cutting such a line once instead of twice could save up to that share of the cutting time, far more than the travel. This is an upper bound, and it is not implemented: it also needs the kerf handled along the shared line.
+- **Sharing cut lines is the bigger lever.** With parts touching (a gap of 0), on average 13.7% of the cut length lies exactly on an edge of another part. Cutting such a line once instead of twice could save up to that share of the cutting time, far more than the travel. This is implemented as common-line cutting, described next.
 
-### 7. SVG export (`SvgEngine`)
+### 7. Common-line cutting (`commonLine.ts`)
+
+When two parts lie side by side, the laser can cut the line between them once instead of once for each part.
+
+**What may be shared.** The outlines used are the paths the laser follows: kerf and fit clearance are already applied and the parts are already on the sheet. A stretch is shared only if an edge of one part and an edge of another lie on the same horizontal or vertical line, overlap, and have the material on opposite sides, so that the line separates the two parts. Parts that are merely close, or touch at a corner, share nothing. This includes the fingers of a finger joint: where the tips of the fingers of one part rest on the flat edge of another, those tips are a shared stretch, and the edge between the fingers is not.
+
+**Why every part keeps its size.** Each outline is moved out by half the kerf, so two parts whose nominal outlines are one kerf apart have cut outlines that coincide. That is why the option spaces the parts by the kerf (`commonLineSpacing`, the kerf less half the fit clearance, or zero when the fit clearance is so large that outlines move in). Cutting the one line removes exactly the strip that cutting it twice would have removed, so nothing about a part changes. A test measures the material left between the cuts for kerfs of 0.1 and 0.3 mm and with a fit clearance, with and without sharing, and finds the same size either way.
+
+**How.** Coordinates closer than 0.000001 mm are one line (they are all snapped to one value first, so afterwards equal means exactly equal). Every edge is cut into the stretches that are shared and those that are not; each shared stretch is kept once. The cut lines then form a graph, and each path starts where an odd number of lines meet and runs to another such point, so a part with no shared line stays one closed loop and a group of touching parts needs half as many paths as there are such points. The paths are ordered greedily from the nearest start, never worse than listed. The part outlines are kept apart from all this: the paths are a second description, so the outlines are still there to check and to identify each part.
+
+**Checks before it is used.** The exact shapes of the cut outlines are compared pairwise (`outlinesOverlap`); if any two overlap, or an outline has an edge that is neither horizontal nor vertical, nothing is shared and the SVG is written with one closed path per part. Edges with the material on the same side that overlap are reported as conflicts and never shared. Both cases are written in the header comment of the file.
+
+#### What it saves
+
+`npm run benchmark` packs the 300 random boxes with a 0.1 mm kerf, once as before (a 2 mm gap, cut with the best order of whole outlines) and once with common-line cutting, both with a 2 mm margin at the edge of the sheet (a 420 mm wide strip, 10 mm/s cutting, 200 mm/s travel):
+
+| Method | Cut length | Cut once | Share | Job time, shared | Job time, today | Time saved | Occupied vs today |
+|---|---|---|---|---|---|---|---|
+| MaxRects | 4764 mm | 680 mm | 14.3% | 6.89 min | 7.99 min | 13.8% | -2.3% |
+| Skyline | 4764 mm | 719 mm | 15.1% | 6.82 min | 7.99 min | 14.6% | -2.1% |
+| Guillotine | 4764 mm | 743 mm | 15.6% | 6.78 min | 7.99 min | 15.1% | -2.1% |
+| Search (100 orders) | 4764 mm | 767 mm | 16.1% | 6.74 min | 7.98 min | 15.6% | -2.3% |
+
+- *Cut length* is all outlines added up; *Cut once* is the part of it that lies on another outline and is cut once, which is also the saving in length. *Occupied vs today* is the area of the rectangle that holds all parts, smaller because the parts are one kerf apart instead of 2 mm.
+- The share is about the same for kerfs of 0 to 0.3 mm (15.2 to 15.3% with MaxRects), because the kerf only sets the spacing: what is shared depends on which edges meet.
+- **More starts.** Cutting a shared line once splits the outlines into more paths: about 29 to 31 per box instead of 8.8 parts. Every path is a start of the laser, and the time above does not count that. For MaxRects the saving is about 66 s for about 20 more paths, so it is gone if starting a cut takes more than about 3 s on your machine.
+- The saving is measured as estimated time and length on the random boxes. It has not been tried on a laser cutter. Parts held together only by shared lines come loose as the cut is finished, and how the cutter software and the machine handle that, and whether a cut-out part moves before the neighbouring cut is made, is not covered here.
+
+### 8. SVG export (`SvgEngine`)
 
 Each placed outline is rotated if needed, kerf-compensated, started at its planned corner, and written as an SVG path using `H` and `V` commands for straight segments. Collinear points are removed. There is one path per part (`id="part-N"`), written in cutting order, because most cutter software follows the order of the paths in the file. Each part keeps one colour on its path and its number. Each panel also gets its sequence number and name as a label. The comment at the top of the file records the cut length, the travel and the order used. The grouped export stacks the thickness groups in one document, with the cutting order worked out for each sheet.
 
@@ -302,7 +334,7 @@ Each placed outline is rotated if needed, kerf-compensated, started at its plann
     "lid":     { "enabled": false, "height": 12, "tolerance": 0.2 },
     "label":   { "enabled": false, "text": "", "face": "front", "fontSize": 8 }
   },
-  "sheet": { "size": "A3", "width": 420, "height": 297, "gap": 2, "algorithm": "maxrects", "cutting": { "optimise": true, "cutSpeed": 10, "travelSpeed": 200 }, "search": { "enabled": false, "candidates": 100 } }
+  "sheet": { "size": "A3", "width": 420, "height": 297, "gap": 2, "algorithm": "maxrects", "cutting": { "optimise": true, "cutSpeed": 10, "travelSpeed": 200 }, "search": { "enabled": false, "candidates": 100 }, "commonLine": { "enabled": false } }
 }
 ```
 
@@ -345,7 +377,7 @@ npm test             # all tests
 npm run benchmark    # only the three benchmarks, with their tables printed
 ```
 
-There are about 260 automated tests. They cover:
+There are about 310 automated tests. They cover:
 
 - **Geometry:** internal dimensions, panel list, lid panels, grounding of the bottom and walls, dividers on the floor, and divider positions for equal and exact compartment sizes.
 - **Joints:** tab sizing and minimum finger width, outlines without invalid numbers, normalisation, repeatable results, flat style, outline helpers, and the divider slot sizes.
@@ -358,6 +390,7 @@ There are about 260 automated tests. They cover:
 - **Equal parts:** the same shape from a different starting vertex, direction or position gives the same signature; a 0.01 mm difference, another thickness or different engraving does not; quarter turns, half turns and mirror images only match when allowed and never for engraved parts; and on the default, lid, divider and 30 random boxes every panel is in exactly one group, whatever order the panels are given in.
 - **Layout search:** the scoring on small cases with known answers; the candidate orders (the first is packing once, no repeats, only permutations, the budget is respected, the same every time); and, for the default, lid and divider boxes with each method on A4, A3 and A2, on sheets with another gap, on a sheet that is too small, on each thickness group and on 25 random boxes, that the result is never worse than packing once, keeps the margins and the gap, lists every panel, and is the same on every run. It also checks that the time limit still gives a valid layout and that the search finds a fit that packing once misses.
 - **Rectangle decomposition:** a rectangle stays one rectangle, an L and a U are cut exactly, the result does not depend on the start vertex, direction or position of the outline, spikes and repeated points are ignored, outlines with a slanted edge are refused, and for 150 random column-shaped outlines and every panel of 120 random boxes the rectangles have the same area as the outline, do not overlap and agree with the outline at sample points. Turning and mirroring keep the area; the clearance test accepts exactly one gap apart, rejects less, is symmetric, agrees with a brute-force check, and lets a thin part into the slot of a real divider.
+- **Common-line cutting:** two touching squares share one side and need one path; only the overlapping stretch of two squares is shared, and a short one too; corner contact, a gap, a gap just above the tolerance and parts that overlap share nothing; outlines walked either way or started anywhere give the same result; fingers resting on a flat edge share their tips only; slanted edges are kept whole; on 60 random partitions of a rectangle every cut line is written exactly once, the length matches a formula, no path jumps, and the number of paths is as small as the junctions allow; the order never needs more travel than the listed one. At the layout level: the spacing is the kerf less half the fit clearance, parts keep that spacing and the margin, no two cut outlines overlap (on every method, on boxes with a lid, dividers, larger kerf and fit clearance, on 40 random boxes, with the layout search and with thickness groups); the material left between cuts has the same size with and without sharing; the SVG writes every line once and covers exactly the outlines; and the file falls back to one path per part when outlines overlap or nothing can be shared.
 - **SVG:** a valid document with paths, and the overflow comment.
 
 ### Random-box tests
@@ -399,7 +432,7 @@ After the first version, the joints were reworked so that mating edges are compl
 - Engraved text is one line, centred on its face. Several lines, images and free positioning are not supported.
 - Packing uses heuristics and is not guaranteed to be optimal, and parts are packed as their bounding rectangles, so a part's notches are not filled with smaller parts. The layout search improves the order and the choice of method, not that.
 - The sheet is a single sheet: parts that do not fit are reported, and no second sheet is laid out.
-- Cut lines are not shared between touching parts. The benchmark shows this could save up to about 14% of the cut length.
+- Common-line cutting is measured as estimated time and length only. It has not been tried on a laser cutter, it adds starts of the laser that the time estimate does not count, and the order of the paths is greedy, not optimal. Only the sides that two parts happen to share are cut once: the layout is not arranged to share more, and the layout search does not look at shared length.
 - The time estimate uses the speeds you enter and ignores acceleration, piercing and engraving, and the head is assumed to start at the sheet's origin. The cutting order is only followed if the cutter software cuts paths in file order.
 - Only rectangular boxes are supported.
 

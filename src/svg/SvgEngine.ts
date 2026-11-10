@@ -1,6 +1,7 @@
 import type { SheetLayout, BoxParams, Point2D, PlacedPanel, CuttingConfig } from '../models/types';
 import type { GroupedSheetLayout } from './BinPacker';
 import { offsetOutline, translateOutline } from '../geometry/outline';
+import { findCommonLines, orderPaths, outlinesOverlap, pathsTravel, type CommonLine, type CutPath } from './commonLine';
 import { DEFAULT_CUTTING, contourLength, cutStats, listedPlan, optimisedPlan, planTravel, rotateContour, type Contour, type CutStats } from './cutting';
 
 /**
@@ -40,6 +41,21 @@ function removeCollinear(pts: { x: number; y: number }[], eps = 1e-4): { x: numb
     if (cross > eps) out.push(c);
   }
   return out.length >= 3 ? out : pts;
+}
+
+/** Path data of an open or closed cutting path: straight runs as H and V, closed paths ending in Z. */
+function buildCutPathD(path: CutPath): string {
+  const pts = path.points;
+  if (pts.length < 2) return '';
+  let d = `M${f(pts[0].x)},${f(pts[0].y)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i].x - pts[i - 1].x;
+    const dy = pts[i].y - pts[i - 1].y;
+    if (Math.abs(dy) < 1e-6)      d += `H${f(pts[i].x)}`;
+    else if (Math.abs(dx) < 1e-6) d += `V${f(pts[i].y)}`;
+    else                           d += `L${f(pts[i].x)},${f(pts[i].y)}`;
+  }
+  return path.closed ? d + 'Z' : d;
 }
 
 function buildPathD(pts: { x: number; y: number }[], ox: number, oy: number): string {
@@ -88,6 +104,54 @@ export function layoutContours(layout: SheetLayout, params: BoxParams, compensat
   return layout.placed.filter(p => !p.overflow).map(pl => placedContour(pl, params, compensate));
 }
 
+/**
+ * The cut lines of a sheet laid out for common-line cutting, or null when the layout does not use it (or two
+ * outlines overlap, in which case nothing is shared and every outline is cut on its own).
+ */
+export function layoutCommonLines(layout: SheetLayout, params: BoxParams): CommonLine | null {
+  if (!layout.config.commonLine?.enabled) return null;
+  const contours = layoutContours(layout, params);
+  if (outlinesOverlap(contours)) return null;
+  const result = findCommonLines(contours);
+  return result.conflicts === 0 ? result : null;
+}
+
+/** Cutting figures for a sheet cut with shared lines: the unique paths and the travel between them. */
+function commonLineStats(layout: SheetLayout, common: CommonLine, settings: CuttingConfig): CutStats {
+  const travelListed = pathsTravel(common.paths);
+  const travelOptimised = pathsTravel(orderPaths(common.paths));
+  const cutSeconds = common.uniqueLength / settings.cutSpeed;
+  const travelSecondsListed = travelListed / settings.travelSpeed;
+  const travelSecondsOptimised = travelOptimised / settings.travelSpeed;
+  return {
+    parts: layout.placed.filter(p => !p.overflow).length,
+    cutLength: common.uniqueLength,
+    travelListed,
+    travelOptimised,
+    cutSeconds,
+    travelSecondsListed,
+    travelSecondsOptimised,
+    totalSecondsListed: cutSeconds + travelSecondsListed,
+    totalSecondsOptimised: cutSeconds + travelSecondsOptimised,
+  };
+}
+
+/** Length cut once instead of twice on the given sheets, and the length of all outlines added up. */
+export function layoutsSharedLength(layouts: SheetLayout[], params: BoxParams): { shared: number; total: number } {
+  let shared = 0;
+  let total = 0;
+  for (const layout of layouts) {
+    const common = layoutCommonLines(layout, params);
+    if (common) {
+      shared += common.sharedLength;
+      total += common.totalLength;
+    } else {
+      total += layoutContours(layout, params).reduce((sum, c) => sum + contourLength(c), 0);
+    }
+  }
+  return { shared, total };
+}
+
 /** Cutting figures for one or more sheets, added together (the head starts at the origin of each sheet). */
 export function layoutsCutStats(layouts: SheetLayout[], params: BoxParams, settings: CuttingConfig): CutStats {
   const total: CutStats = {
@@ -95,7 +159,8 @@ export function layoutsCutStats(layouts: SheetLayout[], params: BoxParams, setti
     travelSecondsListed: 0, travelSecondsOptimised: 0, totalSecondsListed: 0, totalSecondsOptimised: 0,
   };
   for (const layout of layouts) {
-    const s = cutStats(layoutContours(layout, params), settings);
+    const common = layoutCommonLines(layout, params);
+    const s = common ? commonLineStats(layout, common, settings) : cutStats(layoutContours(layout, params), settings);
     for (const key of Object.keys(total) as Array<keyof CutStats>) total[key] += s[key];
   }
   return total;
@@ -116,16 +181,38 @@ export function generateSVG(
   // the paths in the file, so the order chosen here is the order the head will move in.
   const contours = active.map(pl => placedContour(pl, params));
   const cutting = config.cutting ?? DEFAULT_CUTTING;
-  const plan = cutting.optimise ? optimisedPlan(contours) : listedPlan(contours);
-  const paths = plan.order
-    .map((ci, k) => {
-      const pl = active[ci];
-      const d = buildPathD(rotateContour(contours[ci], plan.entry[k]), 0, 0);
-      return `  <path id="part-${pl.panel.sequenceNumber}" fill="none" stroke="${svgColor(pl.panel.sequenceNumber - 1)}" stroke-width="0.15" d="${d}"/>\n`;
-    })
-    .join('');
-  const cutLength = contours.reduce((sum, c) => sum + contourLength(c), 0);
-  const travel = planTravel(contours, plan);
+
+  // With common-line cutting the file holds the unique cut lines (a shared side once), not one path per part.
+  // If two outlines overlap, nothing is shared and the file is written as usual.
+  const shared = layoutCommonLines(layout, params);
+
+  let paths: string;
+  let cutLength: number;
+  let travel: number;
+  if (shared) {
+    const cutPaths = cutting.optimise ? orderPaths(shared.paths) : shared.paths;
+    paths = cutPaths
+      .map((p, k) => `  <path id="cut-${k + 1}" fill="none" stroke="#e03131" stroke-width="0.15" d="${buildCutPathD(p)}"/>\n`)
+      .join('');
+    cutLength = shared.uniqueLength;
+    travel = pathsTravel(cutPaths);
+  } else {
+    const plan = cutting.optimise ? optimisedPlan(contours) : listedPlan(contours);
+    paths = plan.order
+      .map((ci, k) => {
+        const pl = active[ci];
+        const d = buildPathD(rotateContour(contours[ci], plan.entry[k]), 0, 0);
+        return `  <path id="part-${pl.panel.sequenceNumber}" fill="none" stroke="${svgColor(pl.panel.sequenceNumber - 1)}" stroke-width="0.15" d="${d}"/>\n`;
+      })
+      .join('');
+    cutLength = contours.reduce((sum, c) => sum + contourLength(c), 0);
+    travel = planTravel(contours, plan);
+  }
+  const commonNote = !config.commonLine?.enabled
+    ? ''
+    : shared
+      ? ` | Common-line:on | Shared:${f(shared.sharedLength)}mm`
+      : ' | Common-line:off (outlines overlap)';
 
   // Engraved text goes in its own group so the cutter software can give it a separate (engrave) setting.
   // It is placed like the cut path: moved by the same compensation and turned with a rotated panel.
@@ -172,7 +259,7 @@ export function generateSVG(
     : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<!-- Web-Based Box Maker | Author: Ferhat Göksel | Sheet:${sw}x${sh}mm | Parts:${active.length}/${placed.length} | Efficiency:${(efficiency * 100).toFixed(1)}% | Kerf:${params.material.kerf}mm | Fit clearance:${params.material.fitClearance}mm | Cut:${f(cutLength)}mm | Travel:${f(travel)}mm | Order:${cutting.optimise ? 'optimised' : 'listed'} | ${new Date().toISOString()} -->
+<!-- Web-Based Box Maker | Author: Ferhat Göksel | Sheet:${sw}x${sh}mm | Parts:${active.length}/${placed.length} | Efficiency:${(efficiency * 100).toFixed(1)}% | Kerf:${params.material.kerf}mm | Fit clearance:${params.material.fitClearance}mm | Cut:${f(cutLength)}mm | Travel:${f(travel)}mm | Order:${cutting.optimise ? 'optimised' : 'listed'}${commonNote} | ${new Date().toISOString()} -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${sw + 20} ${sh + 20}" width="${sw}mm" height="${sh}mm">
   <rect x="0" y="0" width="${f(sw)}" height="${f(sh)}" fill="#fafaf8" stroke="#cccccc" stroke-width="0.4"/>
 ${overflowComment}${paths}${engraveGroup}  <g id="labels">

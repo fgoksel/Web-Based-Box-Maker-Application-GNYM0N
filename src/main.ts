@@ -3,7 +3,7 @@ import { applyJointToPanel } from './geometry/JointEngine';
 import { layoutCompartments, parseSizeList } from './geometry/compartments';
 import { labelIssue } from './geometry/label';
 import { BoxRenderer } from './rendering/BoxRenderer';
-import type { BoxParams, BoxGeometry, CuttingConfig, LayoutSearchConfig, Panel, SheetConfig, SheetLayout } from './models/types';
+import type { BoxParams, BoxGeometry, CommonLineConfig, CuttingConfig, LayoutSearchConfig, Panel, SheetConfig, SheetLayout } from './models/types';
 import {
   defaultBoxParams,
   defaultSheetConfig,
@@ -20,7 +20,7 @@ import {
   type GroupedSheetLayout,
 } from './svg/BinPacker';
 import { PACKING_LABELS } from './svg/packers';
-import { downloadSVG, generateGroupedSVG, generateSVG, layoutsCutStats } from './svg/SvgEngine';
+import { downloadSVG, generateGroupedSVG, generateSVG, layoutsCutStats, layoutsSharedLength } from './svg/SvgEngine';
 
 type ViewMode = '3d' | 'flat';
 
@@ -366,6 +366,10 @@ function readSearchFromUI(): LayoutSearchConfig {
   };
 }
 
+function readCommonLineFromUI(): CommonLineConfig {
+  return { enabled: el<HTMLElement>('togCommon').classList.contains('on') };
+}
+
 function readSheetFromUI(): SheetConfig {
   const config = defaultSheetConfig();
   config.gap = num('shGap');
@@ -375,6 +379,7 @@ function readSheetFromUI(): SheetConfig {
   config.algorithm = el<HTMLSelectElement>('shAlg').value as SheetConfig['algorithm'];
   config.cutting = readCuttingFromUI();
   config.search = readSearchFromUI();
+  config.commonLine = readCommonLineFromUI();
 
   if (config.size === 'custom') {
     config.width = Number(el<HTMLInputElement>('shW').value);
@@ -512,7 +517,7 @@ function updateCuttingSummary(): void {
   const sheets = currentSheets();
   const settings = readCuttingFromUI();
   if (!sheets.length || !currentParams || !(settings.cutSpeed > 0) || !(settings.travelSpeed > 0)) {
-    for (const id of ['sCut', 'sTrvL', 'sTrvO', 'sTime', 'sSaved']) setText(id, '\u2014');
+    for (const id of ['sCut', 'sTrvL', 'sTrvO', 'sTime', 'sSaved', 'sShared']) setText(id, '\u2014');
     return;
   }
 
@@ -524,6 +529,21 @@ function updateCuttingSummary(): void {
   setText('sTrvO', `${Math.round(s.travelOptimised)} mm (${travelCut > 0 ? '-' : ''}${travelCut.toFixed(0)}%)`);
   setText('sTime', formatDuration(settings.optimise ? s.totalSecondsOptimised : s.totalSecondsListed));
   setText('sSaved', `${formatDuration(Math.max(0, saved))} (${(s.totalSecondsListed > 0 ? (saved / s.totalSecondsListed) * 100 : 0).toFixed(1)}%)`);
+  const { shared, total } = layoutsSharedLength(sheets, currentParams);
+  setText('sShared', shared > 0 ? `${Math.round(shared)} mm (${((shared / total) * 100).toFixed(1)}%)` : '0 mm');
+}
+
+/** Says whether common-line cutting is on and what the parts are spaced by. */
+function showCommonInfo(layouts: SheetLayout[]): void {
+  const on = layouts.length > 0 && layouts.every(l => l.config.commonLine?.enabled);
+  if (!on) {
+    setText('commonInfo', 'Common-line cutting is off');
+    return;
+  }
+  const spacing = layouts[0].spacing ?? 0;
+  setText('commonInfo', spacing > 0
+    ? `Parts are ${spacing.toFixed(2)} mm apart so their cuts meet; Gap is the sheet margin`
+    : 'The fit clearance is too large for cuts to meet, so nothing is shared');
 }
 
 /** The gap that "Tight spacing" sets: 2 x the kerf, but at least 1 mm so a thin web of material stays between parts. */
@@ -651,7 +671,7 @@ function runPacking(): void {
   currentSheet = sheet;
 
   if (separateByThicknessEnabled()) {
-    const grouped = packPanelsByThickness(currentGeometry.panels, sheet);
+    const grouped = packPanelsByThickness(currentGeometry.panels, sheet, currentGeometry.params.material);
     currentGroupedLayouts = grouped;
     currentLayout = null;
     currentThicknessView = '__all__';
@@ -665,10 +685,11 @@ function runPacking(): void {
     setStatusTone(anyOverflow ? 'processing' : 'ready');
     updateCuttingSummary();
     showSearchInfo(grouped.map(g => g.layout));
+    showCommonInfo(grouped.map(g => g.layout));
     return;
   }
 
-  const layout = packPanels(currentGeometry.panels, sheet);
+  const layout = packPanels(currentGeometry.panels, sheet, currentGeometry.params.material);
   currentLayout = layout;
   currentGroupedLayouts = null;
   currentThicknessView = '__all__';
@@ -688,6 +709,7 @@ function runPacking(): void {
   setActionEnabled('btnSVG', true);
   updateCuttingSummary();
   showSearchInfo([layout]);
+  showCommonInfo([layout]);
 }
 
 function doExportSVG(): void {
@@ -820,6 +842,7 @@ function applyProjectToUI(project: { params: BoxParams; sheet: SheetConfig }): v
   toggleOn(el<HTMLElement>('togOpt'), cutting.optimise);
   const search = sheet.search ?? { enabled: false, candidates: 100 };
   toggleOn(el<HTMLElement>('togSearch'), search.enabled);
+  toggleOn(el<HTMLElement>('togCommon'), sheet.commonLine?.enabled ?? false);
   el<HTMLInputElement>('srchN').value = String(search.candidates);
   el<HTMLInputElement>('shGap').value = String(sheet.gap);
   el<HTMLInputElement>('shW').value = String(sheet.width);
@@ -989,6 +1012,14 @@ function initUI(): void {
     toggleOn(el<HTMLElement>('togOpt'), on);
     updateCuttingSummary();
     toast(on ? 'Cut order optimised' : 'Cut order as listed', 'info');
+  });
+
+  el<HTMLElement>('togCommonRow').addEventListener('click', () => {
+    const on = !el<HTMLElement>('togCommon').classList.contains('on');
+    toggleOn(el<HTMLElement>('togCommon'), on);
+    refreshValidation();
+    scheduleLiveUpdate('sheet');
+    toast(on ? 'Cutting shared lines once' : 'Every outline cut on its own', 'info');
   });
 
   el<HTMLElement>('togSearchRow').addEventListener('click', () => {
