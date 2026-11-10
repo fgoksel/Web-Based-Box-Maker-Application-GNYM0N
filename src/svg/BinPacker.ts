@@ -1,4 +1,4 @@
-import type { Panel, PlacedPanel, SheetConfig, SheetLayout } from '../models/types';
+import type { MaterialConfig, Panel, PlacedPanel, SheetConfig, SheetLayout } from '../models/types';
 import { PACKERS } from './packers';
 import { searchLayout } from './layoutSearch';
 
@@ -18,30 +18,46 @@ export function resolveSheetDimensions(config: SheetConfig): { w: number; h: num
 }
 
 /**
+ * The distance between neighbouring parts that makes their cut outlines meet. Each outline is moved out by
+ * half the kerf (less a quarter of the fit clearance), so parts spaced by twice that have outlines that lie
+ * on one another where the parts touch. Zero when the fit clearance is so large that outlines move in.
+ */
+export function commonLineSpacing(material: MaterialConfig): number {
+  return Math.max(0, material.kerf - material.fitClearance / 2);
+}
+
+/**
  * Packs the panels onto one sheet with the method chosen in `config.algorithm`
  * (guillotine when none is given). Panels are placed largest first, or, with `config.search` on, in the
  * order that gives the tightest layout (see layoutSearch). Each part takes up its own
  * size plus the gap, so neighbours and the sheet edge are always at least `gap` apart.
+ * With `config.commonLine` on (and the material given) neighbouring parts are spaced by the kerf instead,
+ * so that their cut outlines meet, and `gap` is only the margin at the edge of the sheet.
  * A panel that does not fit is marked `overflow`.
  */
-export function packPanels(panels: Panel[], config: SheetConfig): SheetLayout {
+export function packPanels(panels: Panel[], config: SheetConfig, material?: MaterialConfig): SheetLayout {
   const { w: shW, h: shH } = resolveSheetDimensions(config);
-  const gap = config.gap;
+  const margin = config.gap;
+  const common = !!config.commonLine?.enabled && !!material;
+  const spacing = common ? commonLineSpacing(material!) : config.gap;
   const algorithm = config.algorithm ?? 'guillotine';
 
   const sorted = [...panels].sort(
     (a, b) => b.panelWidth * b.panelHeight - a.panelWidth * a.panelHeight,
   );
 
-  const items = sorted.map(p => ({ w: p.panelWidth + gap, h: p.panelHeight + gap }));
+  // Every item carries the spacing after it, so the bin is larger by one spacing and smaller by both margins.
+  const binW = shW - 2 * margin + spacing;
+  const binH = shH - 2 * margin + spacing;
+  const items = sorted.map(p => ({ w: p.panelWidth + spacing, h: p.panelHeight + spacing }));
   let spots: ReturnType<(typeof PACKERS)[typeof algorithm]>;
   let search: SheetLayout['search'];
   if (config.search?.enabled) {
-    const found = searchLayout(sorted, items, shW - gap, shH - gap, { candidates: config.search.candidates, algorithm });
+    const found = searchLayout(sorted, items, binW, binH, { candidates: config.search.candidates, algorithm });
     spots = found.spots;
     search = found.report;
   } else {
-    spots = PACKERS[algorithm](items, shW - gap, shH - gap);
+    spots = PACKERS[algorithm](items, binW, binH);
   }
 
   let usedArea = 0;
@@ -49,7 +65,7 @@ export function packPanels(panels: Panel[], config: SheetConfig): SheetLayout {
     const spot = spots[i];
     if (!spot) return { panel, x: 0, y: 0, rotated: false, overflow: true };
     usedArea += panel.panelWidth * panel.panelHeight;
-    return { panel, x: spot.x + gap, y: spot.y + gap, rotated: spot.rotated, overflow: false };
+    return { panel, x: spot.x + margin, y: spot.y + margin, rotated: spot.rotated, overflow: false };
   });
 
   const efficiency = Math.min(1, usedArea / (shW * shH));
@@ -60,6 +76,7 @@ export function packPanels(panels: Panel[], config: SheetConfig): SheetLayout {
     efficiency,
     sheetsRequired: placed.some(p => p.overflow) ? 2 : 1,
     ...(search ? { search } : {}),
+    spacing,
   };
 }
 
@@ -69,7 +86,7 @@ export interface GroupedSheetLayout {
   layout: SheetLayout;
 }
 
-export function packPanelsByThickness(panels: Panel[], config: SheetConfig): GroupedSheetLayout[] {
+export function packPanelsByThickness(panels: Panel[], config: SheetConfig, material?: MaterialConfig): GroupedSheetLayout[] {
   const groups = new Map<string, Panel[]>();
   for (const p of panels) {
     const key = String(Math.round(p.thickness * 1000) / 1000);
@@ -81,7 +98,7 @@ export function packPanelsByThickness(panels: Panel[], config: SheetConfig): Gro
   return keys.map((k) => ({
     key: k,
     label: `${k} mm`,
-    layout: packPanels(groups.get(k)!, config),
+    layout: packPanels(groups.get(k)!, config, material),
   }));
 }
 

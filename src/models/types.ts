@@ -176,6 +176,14 @@ export interface LayoutSearchConfig {
   candidates: number;
 }
 
+/**
+ * Cut a line once where two parts touch. The parts are then spaced by the kerf instead of by `gap`, so that
+ * their cut outlines lie on one another; `gap` stays the margin at the edge of the sheet.
+ */
+export interface CommonLineConfig {
+  enabled: boolean;
+}
+
 export interface SheetConfig {
   size: StandardSheetSize;
   width: number;
@@ -187,6 +195,8 @@ export interface SheetConfig {
   cutting?: CuttingConfig;
   /** Layout search. Files without it pack once, as before. */
   search?: LayoutSearchConfig;
+  /** Common-line cutting. Files without it cut every outline on its own, as before. */
+  commonLine?: CommonLineConfig;
 }
 
 export interface PlacedPanel {
@@ -216,6 +226,8 @@ export interface SheetLayout {
   efficiency: number;
   sheetsRequired: number;
   search?: LayoutSearchReport;
+  /** Distance kept between neighbouring parts, which is `config.gap` unless common-line cutting set it to the kerf. */
+  spacing?: number;
 }
 
 export interface BoxMakerProject {

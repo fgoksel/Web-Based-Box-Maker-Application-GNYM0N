@@ -95,10 +95,11 @@ export function scoreLayout(
 /** The score of a finished layout, measured the same way the search measures its candidates. */
 export function layoutScore(layout: SheetLayout): LayoutScore {
   const { width, height, gap } = layout.config;
+  const spacing = layout.spacing ?? gap;
   const parts = layout.placed;
-  const items = parts.map(pl => ({ w: pl.panel.panelWidth + gap, h: pl.panel.panelHeight + gap }));
+  const items = parts.map(pl => ({ w: pl.panel.panelWidth + spacing, h: pl.panel.panelHeight + spacing }));
   const spots = parts.map(pl => (pl.overflow ? null : { x: pl.x - gap, y: pl.y - gap, rotated: pl.rotated }));
-  return scoreLayout(items, spots, width - gap, height - gap, parts.map(pl => pl.panel.panelWidth * pl.panel.panelHeight));
+  return scoreLayout(items, spots, width - 2 * gap + spacing, height - 2 * gap + spacing, parts.map(pl => pl.panel.panelWidth * pl.panel.panelHeight));
 }
 
 /** Small deterministic random numbers (the same sequence for the same seed). */

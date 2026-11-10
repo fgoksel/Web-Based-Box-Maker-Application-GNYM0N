@@ -264,6 +264,11 @@
                             <input type="number" id="srchN" value="100" min="1" max="5000" step="50" autocomplete="off" title="How many different placement orders are tried, each with every method. More takes longer." />
                         </div>
                         <div class="sub-note" id="searchInfo" style="margin-top:6px;font-size:11px;opacity:.7">Search is off</div>
+                        <div class="toggle-row" id="togCommonRow" style="margin-top:10px" title="Cut a line once where two parts touch. The parts are spaced by the kerf so that their cuts lie on one another, and the Gap becomes the margin at the edge of the sheet.">
+                            <span>Common-line cutting</span>
+                            <div class="toggle" id="togCommon"></div>
+                        </div>
+                        <div class="sub-note" id="commonInfo" style="margin-top:6px;font-size:11px;opacity:.7">Common-line cutting is off</div>
                         <button id="btnTightGap" style="width:100%;margin-top:8px" title="Put the parts close together, so the laser has less distance to travel between them and less sheet is used. The gap is set to a small value based on the kerf, which you can change.">Tight spacing</button>
                         <div class="sub" id="customSheetSub">
                             <div class="grid2">
@@ -351,6 +356,10 @@
                             <div class="summary-row">
                                 <span>Saved by ordering</span>
                                 <span id="sSaved">&mdash;</span>
+                            </div>
+                            <div class="summary-row" title="Length that is cut once instead of twice because two parts share it">
+                                <span>Cut once, shared</span>
+                                <span id="sShared">&mdash;</span>
                             </div>
                         </div>
                     </div>

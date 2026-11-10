@@ -336,6 +336,39 @@ describe('importProject: field checks', () => {
     expect(res.validation.warnings).toContain('sheet.search.budget is not used and was ignored');
   });
 
+  it('keeps the common-line setting', () => {
+    const sheet = { ...defaultSheetConfig(), commonLine: { enabled: true } };
+    const res = importProject(exportProject(defaultBoxParams(), sheet));
+    expect(res.success).toBe(true);
+    expect(res.project?.sheet.commonLine).toEqual({ enabled: true });
+  });
+
+  it('gives a file from before common-line cutting the setting switched off, without a note', () => {
+    const file = validFile();
+    delete file.sheet.commonLine;
+    const res = importObject(file);
+    expect(res.success).toBe(true);
+    expect(res.project?.sheet.commonLine).toEqual({ enabled: false });
+    expect(res.validation.warnings).toEqual([]);
+  });
+
+  it('rejects common-line settings that make no sense, and ignores an unknown one with a note', () => {
+    for (const [commonLine, message] of [
+      [{ enabled: 'yes' }, 'sheet.commonLine.enabled must be true or false'],
+      [{}, 'sheet.commonLine.enabled is missing'],
+      ['on', 'sheet.commonLine must be an object'],
+    ] as Array<[Record<string, unknown> | string, string]>) {
+      const file = validFile();
+      file.sheet.commonLine = commonLine;
+      expect(errorsOf(file).some(e => e.startsWith(message)), message).toBe(true);
+    }
+    const file = validFile();
+    file.sheet.commonLine = { enabled: true, mode: 'all' };
+    const res = importObject(file);
+    expect(res.success).toBe(true);
+    expect(res.validation.warnings).toContain('sheet.commonLine.mode is not used and was ignored');
+  });
+
   it('rejects an invalid sheet', () => {
     const file = validFile();
     file.sheet = { size: 'B7', width: -1, height: 297, gap: 2 };
